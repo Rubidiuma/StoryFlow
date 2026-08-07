@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "storyflow"
+version = "0.1.0"
+description = "AI-driven interactive fiction application"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0",
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.2.0",
+    "mypy>=1.7.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
