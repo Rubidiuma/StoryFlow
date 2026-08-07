@@ -30,6 +30,15 @@ class Database:
             connection.close()
 
     @contextmanager
+    def read(self) -> Iterator[sqlite3.Connection]:
+        """Yield a read connection and close it on every exit path."""
+        connection = self.connect()
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+    @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         """Yield a connection with an explicit transaction boundary."""
         connection = self.connect()

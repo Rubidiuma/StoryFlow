@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS stories (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
+    current_branch_id TEXT REFERENCES branches(id),
     payload TEXT NOT NULL
 );
 
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS story_segments (
 CREATE TABLE IF NOT EXISTS choice_points (
     id TEXT PRIMARY KEY,
     segment_id TEXT NOT NULL REFERENCES story_segments(id),
+    selected_option_id TEXT REFERENCES choice_options(id) DEFERRABLE INITIALLY DEFERRED,
     payload TEXT NOT NULL
 );
 

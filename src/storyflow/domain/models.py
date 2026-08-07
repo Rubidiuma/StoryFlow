@@ -1,5 +1,5 @@
 """Domain models for StoryFlow per SPEC §8."""
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Self
 from uuid import UUID, uuid4
 
@@ -204,8 +204,8 @@ class Story(BaseModel):
     current_branch_id: UUID | None = None
     pause_requested: bool = Field(False)
     version: int = Field(1, description="Optimistic lock version")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class StoryArc(BaseModel):
@@ -243,7 +243,7 @@ class StorySegment(BaseModel):
     scene_plan: dict[str, Any] | None = None
     generation_key: str = Field(..., description="Idempotent key for generation")
     status: str = Field("pending", description="pending, completed, failed")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_validator("content")
     @classmethod
@@ -266,7 +266,7 @@ class Branch(BaseModel):
     fork_segment_id: UUID | None = None
     name: str = Field(default="Branch", description="User-friendly branch name")
     head_segment_id: UUID | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class MemorySnapshot(BaseModel):
@@ -305,4 +305,4 @@ class GenerationEvent(BaseModel):
     input_token_estimate: int = Field(0)
     output_size: int = Field(0)
     error_code: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

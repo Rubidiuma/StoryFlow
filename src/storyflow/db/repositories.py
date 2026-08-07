@@ -30,13 +30,13 @@ class StoryRepository:
     def create_story(self, story: Story) -> Story:
         with self.database.transaction() as connection:
             connection.execute(
-                "INSERT INTO stories (id, session_id, payload) VALUES (?, ?, ?)",
-                (str(story.id), story.session_id, _json(story)),
+                "INSERT INTO stories (id, session_id, current_branch_id, payload) VALUES (?, ?, ?, ?)",
+                (str(story.id), story.session_id, _optional_id(story.current_branch_id), _json(story)),
             )
         return story
 
     def get_story(self, story_id: UUID) -> Story | None:
-        with self.database.connect() as connection:
+        with self.database.read() as connection:
             row = connection.execute(
                 "SELECT payload FROM stories WHERE id = ?", (str(story_id),)
             ).fetchone()
@@ -54,7 +54,7 @@ class StoryRepository:
         return bible
 
     def get_bible(self, story_id: UUID) -> StoryBible | None:
-        with self.database.connect() as connection:
+        with self.database.read() as connection:
             row = connection.execute(
                 "SELECT payload FROM story_bibles WHERE story_id = ?", (str(story_id),)
             ).fetchone()
@@ -81,7 +81,7 @@ class StoryRepository:
         return branch
 
     def get_branch(self, branch_id: UUID) -> Branch | None:
-        with self.database.connect() as connection:
+        with self.database.read() as connection:
             row = connection.execute(
                 "SELECT payload FROM branches WHERE id = ?", (str(branch_id),)
             ).fetchone()
@@ -152,8 +152,13 @@ class StoryRepository:
             update={"segment_id": segment.id, "options": bound_options}
         )
         connection.execute(
-            "INSERT INTO choice_points (id, segment_id, payload) VALUES (?, ?, ?)",
-            (str(bound_choice.id), str(segment.id), _json(bound_choice)),
+            "INSERT INTO choice_points (id, segment_id, selected_option_id, payload) VALUES (?, ?, ?, ?)",
+            (
+                str(bound_choice.id),
+                str(segment.id),
+                _optional_id(bound_choice.selected_option_id),
+                _json(bound_choice),
+            ),
         )
         for option in bound_options:
             connection.execute(
@@ -165,7 +170,7 @@ class StoryRepository:
             )
 
     def get_segment(self, segment_id: UUID) -> StorySegment | None:
-        with self.database.connect() as connection:
+        with self.database.read() as connection:
             row = connection.execute(
                 "SELECT payload FROM story_segments WHERE id = ?", (str(segment_id),)
             ).fetchone()
@@ -173,7 +178,7 @@ class StoryRepository:
 
     def list_branch_path(self, branch_id: UUID) -> list[StorySegment]:
         """Follow a branch head's parent links from root through the current head."""
-        with self.database.connect() as connection:
+        with self.database.read() as connection:
             branch = connection.execute(
                 "SELECT head_segment_id FROM branches WHERE id = ?", (str(branch_id),)
             ).fetchone()
@@ -209,7 +214,7 @@ class StoryRepository:
         return snapshot
 
     def get_latest_memory_snapshot(self, branch_id: UUID) -> MemorySnapshot | None:
-        with self.database.connect() as connection:
+        with self.database.read() as connection:
             row = connection.execute(
                 """
                 SELECT payload FROM memory_snapshots

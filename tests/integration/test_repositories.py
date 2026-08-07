@@ -1,5 +1,6 @@
 """Integration tests for the SQLite persistence repositories."""
 import sqlite3
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -241,3 +242,94 @@ def test_memory_snapshots_round_trip_and_latest_is_per_branch(tmp_path: Path) ->
     assert repository.save_memory_snapshot(first) == first
     assert repository.save_memory_snapshot(second) == second
     assert repository.get_latest_memory_snapshot(branch.id) == second
+
+
+def test_story_current_branch_and_choice_selection_use_relational_foreign_keys(
+    tmp_path: Path,
+) -> None:
+    """Nullable JSON relation fields are mirrored by enforced relational foreign keys."""
+    database, repository, story, branch = make_repository(tmp_path)
+    story_with_current_branch = make_story().model_copy(update={"current_branch_id": branch.id})
+
+    assert repository.create_story(story_with_current_branch) == story_with_current_branch
+    assert repository.get_story(story_with_current_branch.id) == story_with_current_branch
+    with pytest.raises(sqlite3.IntegrityError):
+        repository.create_story(make_story().model_copy(update={"current_branch_id": uuid4()}))
+
+    selected_choice = make_choice()
+    selected_choice = selected_choice.model_copy(
+        update={"selected_option_id": selected_choice.options[0].id}
+    )
+    selected_segment = make_segment(story, branch, "selected-choice")
+    repository.commit_segment_bundle(selected_segment, selected_choice)
+    with database.connect() as connection:
+        row = connection.execute(
+            "SELECT selected_option_id, payload FROM choice_points WHERE id = ?", (str(selected_choice.id),)
+        ).fetchone()
+    assert row["selected_option_id"] == str(selected_choice.options[0].id)
+    assert ChoicePoint.model_validate_json(row["payload"]).selected_option_id == selected_choice.options[0].id
+
+    invalid_choice = make_choice().model_copy(update={"selected_option_id": uuid4()})
+    with pytest.raises(sqlite3.IntegrityError):
+        repository.commit_segment_bundle(
+            make_segment(story, branch, "invalid-selected-choice", sequence=2), invalid_choice
+        )
+
+
+def test_database_reads_explicitly_close_tracked_connections_on_success_and_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Read connections close deterministically, including when work inside them raises."""
+    database, repository, story, _ = make_repository(tmp_path)
+    real_connect = sqlite3.connect
+
+    class TrackingConnection:
+        def __init__(self, connection: sqlite3.Connection) -> None:
+            self.connection = connection
+            self.closed = False
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self.connection, name)
+
+        def __setattr__(self, name: str, value: object) -> None:
+            if name in {"connection", "closed"}:
+                object.__setattr__(self, name, value)
+            else:
+                setattr(self.connection, name, value)
+
+        def close(self) -> None:
+            self.closed = True
+            self.connection.close()
+
+    tracked: list[TrackingConnection] = []
+
+    def track_connect(path: str, **kwargs: Any) -> TrackingConnection:
+        connection = TrackingConnection(real_connect(path, **kwargs))
+        tracked.append(connection)
+        return connection
+
+    monkeypatch.setattr("storyflow.db.database.sqlite3.connect", track_connect)
+    with database.read() as connection:
+        connection.execute("SELECT 1")
+    assert tracked[-1].closed is True
+
+    with pytest.raises(RuntimeError, match="read failure"), database.read():
+        raise RuntimeError("read failure")
+    assert tracked[-1].closed is True
+
+    assert repository.get_story(story.id) == story
+    assert tracked[-1].closed is True
+
+
+def test_persisted_domain_datetimes_are_aware_utc_and_round_trip(tmp_path: Path) -> None:
+    """Storage retains timezone-aware UTC defaults for created and updated domain records."""
+    _, repository, story, branch = make_repository(tmp_path)
+    segment = make_segment(story, branch, "aware-datetimes")
+
+    assert story.created_at.tzinfo is UTC
+    assert story.updated_at.tzinfo is UTC
+    assert branch.created_at.tzinfo is UTC
+    assert segment.created_at.tzinfo is UTC
+    assert repository.get_story(story.id) == story
+    assert repository.commit_segment_bundle(segment) == segment
+    assert repository.get_segment(segment.id) == segment
