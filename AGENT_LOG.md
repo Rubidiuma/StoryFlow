@@ -201,8 +201,8 @@ Category: Domain Validation (16/16)
 
 - CS-01、T01、T02、T03：已完成；T04 及后续任务仍未开始。
 - 当前完整测试：67 passed，0 warning；T01～T03 与最终修复波次均保存了 RED/GREEN 证据。
-- PR-01 最终评审提出的 Critical/Important/指定 Minor 已在单次整分支修复波次中处理；最终复审批准仍待控制器确认。
-- PR-01 整分支最终复审：**待完成**，本日志不将其标记为已批准或已完成。
+- PR-01 最终评审提出的 Critical/Important/指定 Minor 已在单次整分支修复波次中处理（提交 `32c6533`）。
+- PR-01 整分支最终复审：**已批准**；5 项 finding 全部关闭，未发现新的 Critical/Important 回归。
 
 #### PR-01 最终评审修复波次
 
@@ -215,7 +215,7 @@ Category: Domain Validation (16/16)
 **最终门禁：** 目标领域/仓储测试 51 passed；完整测试 67 passed；`make lint`、`make typecheck`、`git diff --check` 均通过且无 warning。
 
 **证据文件：** `.superpowers/sdd/PLAN/final-fix-report.md`
-**状态：** 修复实现与本地门禁完成；PR-01 最终复审批准待控制器处理。
+**状态：** 修复实现与本地门禁完成；PR-01 最终复审已批准。
 
 ---
 
