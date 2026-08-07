@@ -87,21 +87,17 @@ Category: Domain Validation (16/16)
 - **清晰度评级：** 优秀 (9/10)
 - **发现的缺陷数：** 0 个阻塞性缺陷
 - **非阻塞注记数：** 2 个（都已记录到 SPEC_PROCESS.md）
-  - PLAN.md worktree 路径不匹配（已人工纠正）
+  - PLAN.md worktree 路径不匹配（在本次 PR-01 过程文档对账中纠正）
   - 自定义行动解析策略延迟到服务层（有意设计，已确认理解）
 
 **人工干预：** 
 
-1. **PLAN.md 修正**
-   - 修改：`../storyflow-coldstart` → `.claude/worktrees/coldstart-validation`
-   - 原因：实际 worktree 路径与文档不符
-   - 文件：PLAN.md §3 CS-01 的 **工作区** 字段
+1. **文档对账（2026-08-07）**
+   - 修改：`../storyflow-coldstart` → `.claude/worktrees/coldstart-validation`。
+   - 原因：实际 worktree 路径与历史文档不符；此前“已修正”的记录不准确。
+   - 同时更正证据谱系：隔离分支仍指向 `010c021`，而冷启动代码提交 `9bc5df8` 位于 main 谱系；不能称其由隔离分支提交。
 
-2. **SPEC_PROCESS.md 补充**
-   - 记录了 Agent 的完成情况、测试结果、SPEC 验证分析
-   - 将冷启动从"待完成"更新为"✅ 通过"
-
-3. **无代码修改需求**
+2. **无代码修改需求**
    - SPEC.md：无修订（清晰度已验证）
    - Agent 的代码可直接移用于 T01～T03
 
@@ -132,105 +128,87 @@ Category: Domain Validation (16/16)
 - ✅ 可启动正式实现：是
 - ✅ 建议下一步：立即启动 T01（项目骨架）
 
-**Commit 记录（冷启动 Agent 在隔离环境）：** `9bc5df8`  
+**Commit 记录（证据更正）：** 冷启动练习产出的代码为 `9bc5df8`，但它提交在 main 谱系；隔离分支 `coldstart/spec-plan-validation` 仍为 `010c021`。正式分支上的 T02 接纳提交为 `8bd1174`。这是 worktree/提交谱系偏差，已由正式接纳恢复过程可追溯性，并非产品缺陷。
 **推荐下一步：** 启动 PR-01（T01～T03），Agent 可复用冷启动的 domain 代码
 
 ---
 
-## 正式实现工作区（待启动）
+## 正式实现工作区
 
 ### Phase 1：Project Bootstrap & Domain (PR-01)
 
 #### T01 - 项目骨架与质量门禁
 
-**时间：** TBD  
-**Agent 类型：** TBD（取决于冷启动结果）  
+**时间：** 2026-08-07（任务报告未保留精确时分）
+**Agent 类型：** subagent
 **分支：** `feature/bootstrap-domain`  
+**Worktree：** `.worktrees/feature-bootstrap-domain`
 **依赖：** CS-01 完成  
 
-**Superpowers 技能：**
-- `writing-plans`：确认任务细分
-- `test-driven-development`：强制 TDD
-- `requesting-code-review`：两阶段评审
+**技能/工作流：** `using-git-worktrees`、`subagent-driven-development`、`test-driven-development`、`requesting-code-review`、`verification-before-completion`；仅在初始 broken-import/环境设置诊断中使用 `systematic-debugging`。
 
-**关键 Prompt：**
-```
-[待 Task 启动时记录]
-你负责 PLAN.md 中的 T01（项目骨架与质量门禁）。
-1. 先写测试（`GET /health` 返回结构化状态）；
-2. 确认测试失败；
-3. 实现最少代码使测试通过；
-4. 运行 ruff、mypy 等质量门禁；
-5. 报告修改文件、红绿结果和 commit message。
-```
+**RED → GREEN：** 首个健康检查因 `ModuleNotFoundError: storyflow.main` 失败；实现最小 FastAPI 应用后目标测试 `1 passed`。最终 `make test` 为 30 passed，`make lint` 与 `make typecheck` 均通过。
 
-**预期完成条件：**
-- [ ] `make test` 通过健康检查测试
-- [ ] `make lint` 和 `make typecheck` 通过
-- [ ] `.gitignore` 包含 Python、数据库、编辑器规则
-- [ ] 两阶段评审（SPEC 合规 + 代码质量）无 Critical issue
+**评审与修复：** 两轮独立评审修复质量门禁范围问题，并撤回越过 T01 范围的 T02 文件修改；最终无未解决发现。
 
-**实际输出：** [待启动]
+**提交：** `471b4ee` / `ba878d9` / `5a7b02f`。
 
-**Commit Hash：** —
+**控制器介入：** 使用精确 brief `.superpowers/sdd/PLAN/task-1-brief.md` 派发任务。subagent 遇到 Git index-lock sandbox 权限后，控制器仅对已产出的改动执行机械性暂存/提交；没有人类编写代码的声明。
 
-**人工修改：** [待记录]
-
-**教训：** [待总结]
+**教训：** 质量门禁必须覆盖声明的完整范围，同时须守住已有任务文件的边界。
 
 ---
 
 #### T02 - 领域模型与状态机
 
-**时间：** TBD  
-**Agent 类型：** TBD  
+**时间：** 2026-08-07（任务报告未保留精确时分）
+**Agent 类型：** subagent
 **分支：** `feature/bootstrap-domain`（同 T01）  
+**Worktree：** `.worktrees/feature-bootstrap-domain`
 **依赖：** T01 完成  
 
-**Superpowers 技能：**
-- `test-driven-development`
+**技能/工作流：** `using-git-worktrees`、`subagent-driven-development`、`test-driven-development`、`requesting-code-review`、`verification-before-completion`。
 
-**关键 Prompt：** [TBD]
+**RED → GREEN：** 在冷启动原型 29 个通过测试的基线之上，五组缺口测试分别暴露缺少纯 `transition`、6,000 字符聚合限制、`ScenePlan`、SPEC §8 关系字段、空白/规范化唯一性校验；最小实现后领域测试 41 passed，完整回归 42 passed，lint/typecheck 均通过。
 
-**失败测试覆盖：**
-- `DRAFT → PLANNING` 被拒绝
-- `WAITING_CHOICE → PLANNING` 被拒绝
-- `STREAMING → COMMITTING → IDLE/WAITING_CHOICE` 合法
-- 配置边界校验（自定义行动长度、选项数量等）
+**评审与修复：** 独立 SPEC/质量评审 Approved；没有记录需另行修复的发现。
 
-**预期完成：** [TBD]
+**提交：** `9bc5df8`（冷启动领域原型，main 谱系）/ `8bd1174`（正式接纳）。
 
-**实际输出：** [待启动]
+**控制器介入：** 使用精确 brief `.superpowers/sdd/PLAN/task-2-brief.md` 派发任务。subagent 遇到 Git index-lock sandbox 权限后，控制器仅对已产出的改动执行机械性暂存/提交；没有人类编写代码的声明。
 
-**Commit Hash：** —
-
-**教训：** [待总结]
+**教训：** 冷启动原型必须经正式的、可追溯的契约缺口测试和独立评审后，才能作为任务完成接纳。
 
 ---
 
 #### T03 - SQLite schema 与仓储
 
-**时间：** TBD  
-**Agent 类型：** TBD  
+**时间：** 2026-08-07（任务报告未保留精确时分）
+**Agent 类型：** subagent
 **分支：** `feature/bootstrap-domain`  
+**Worktree：** `.worktrees/feature-bootstrap-domain`
 **依赖：** T02 完成  
 
-**Superpowers 技能：**
-- `test-driven-development`
+**技能/工作流：** `using-git-worktrees`、`subagent-driven-development`、`test-driven-development`、`requesting-code-review`、`verification-before-completion`。
 
-**失败测试覆盖：**
-- 幂等键防止重复片段
-- 事务失败不产生半场景
-- 外键约束
-- 路径遍历恢复
+**RED → GREEN：** 三个 TDD 切片先后暴露缺失 `storyflow.db`、`create_branch`、路径/快照读取；修复后集成测试变绿。评审补充了关系外键、读连接关闭和非弃用 UTC 回归测试，最终 `make test` 为 52 passed、0 warning，lint/typecheck 均通过。
 
-**预期完成：** [TBD]
+**评审与修复：** 两轮独立评审；第一轮修复三项持久化完整性问题，第二轮恢复 T02 的 naive-UTC 兼容语义，最终无未解决发现。
 
-**实际输出：** [待启动]
+**提交：** `8250a44` / `d565c96` / `4797f91`。
 
-**Commit Hash：** —
+**控制器介入：** 使用精确 brief `.superpowers/sdd/PLAN/task-3-brief.md` 派发任务。subagent 遇到 Git index-lock sandbox 权限后，控制器仅对已产出的改动执行机械性暂存/提交；没有人类编写代码的声明。
 
-**教训：** [待总结]
+**教训：** 持久化层既要以关系约束保护一致性，也要用回归测试保护既有序列化语义。
+
+---
+
+## PR-01 对账指标（2026-08-07）
+
+- CS-01、T01、T02、T03：已完成；T04 及后续任务仍未开始。
+- 当前完整测试：52 passed，0 warning；T01～T03 均保存了 RED/GREEN 证据。
+- T01～T03 没有未解决的 Critical 或 Important 评审发现。
+- PR-01 整分支最终评审：**待完成**，本日志不将其标记为已完成。
 
 ---
 
