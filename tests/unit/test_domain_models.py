@@ -3,10 +3,9 @@ import pytest
 from pydantic import ValidationError
 
 from storyflow.domain.models import (
-    Story,
-    StoryConfig,
-    ChoicePoint,
     ChoiceOption,
+    ChoicePoint,
+    StoryConfig,
 )
 
 
