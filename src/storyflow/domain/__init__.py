@@ -1,34 +1,28 @@
-"""Domain layer - pure business logic and validation."""
+"""Domain models and state machine for StoryFlow."""
 
-from storyflow.domain.enums import (
-    ChoiceFrequency,
-    ChoiceType,
-    Genre,
-    StoryStatus,
-    StoryStructure,
-)
-from storyflow.domain.models import (
-    Branch,
-    CharacterState,
-    ChoiceOption,
-    ChoicePoint,
-    CustomAction,
-    GenerationEvent,
-    MemorySnapshot,
+from .enums import StoryStatus, ChoiceFrequency, ConfigGenre, ConfigStructure, ForeshadowingStatus
+from .models import (
     Story,
-    StoryArc,
-    StoryBible,
     StoryConfig,
+    StoryBible,
+    CharacterState,
+    StoryArc,
     StorySegment,
+    ChoicePoint,
+    ChoiceOption,
+    Branch,
+    MemorySnapshot,
 )
-from storyflow.domain.state_machine import InvalidTransitionError, StoryStateMachine
+from .state_machine import StoryStateMachine, StateTransitionEvent
 
 __all__ = [
+    # Enums
     "StoryStatus",
     "ChoiceFrequency",
-    "ChoiceType",
-    "Genre",
-    "StoryStructure",
+    "ConfigGenre",
+    "ConfigStructure",
+    "ForeshadowingStatus",
+    # Models
     "Story",
     "StoryConfig",
     "StoryBible",
@@ -37,10 +31,9 @@ __all__ = [
     "StorySegment",
     "ChoicePoint",
     "ChoiceOption",
-    "CustomAction",
     "Branch",
     "MemorySnapshot",
-    "GenerationEvent",
+    # State Machine
     "StoryStateMachine",
-    "InvalidTransitionError",
+    "StateTransitionEvent",
 ]
