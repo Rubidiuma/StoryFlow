@@ -1,5 +1,5 @@
 """Story state machine implementation per SPEC §6."""
-from typing import ClassVar
+from typing import Dict, Set
 
 from storyflow.domain.enums import StoryStatus
 
@@ -7,6 +7,7 @@ from storyflow.domain.enums import StoryStatus
 class InvalidTransitionError(Exception):
     """Raised when an invalid state transition is attempted."""
 
+    pass
 
 
 class StoryStateMachine:
@@ -19,7 +20,7 @@ class StoryStateMachine:
     """
 
     # Define valid transitions as a mapping: from_state -> set of allowed_to_states
-    VALID_TRANSITIONS: ClassVar[dict[StoryStatus, set[StoryStatus]]] = {
+    VALID_TRANSITIONS: Dict[StoryStatus, Set[StoryStatus]] = {
         StoryStatus.DRAFT: {StoryStatus.IDLE},
         StoryStatus.IDLE: {StoryStatus.PLANNING, StoryStatus.PAUSED, StoryStatus.ERROR},
         StoryStatus.PLANNING: {

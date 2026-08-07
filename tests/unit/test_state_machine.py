@@ -1,8 +1,7 @@
 """Unit tests for story state machine transitions."""
 import pytest
-
 from storyflow.domain.enums import StoryStatus
-from storyflow.domain.state_machine import InvalidTransitionError, StoryStateMachine
+from storyflow.domain.state_machine import StoryStateMachine, InvalidTransitionError
 
 
 class TestStateTransitions:
