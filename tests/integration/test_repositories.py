@@ -1,6 +1,5 @@
 """Integration tests for the SQLite persistence repositories."""
 import sqlite3
-from datetime import UTC
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -321,15 +320,15 @@ def test_database_reads_explicitly_close_tracked_connections_on_success_and_erro
     assert tracked[-1].closed is True
 
 
-def test_persisted_domain_datetimes_are_aware_utc_and_round_trip(tmp_path: Path) -> None:
-    """Storage retains timezone-aware UTC defaults for created and updated domain records."""
+def test_persisted_domain_datetimes_are_naive_utc_and_round_trip(tmp_path: Path) -> None:
+    """Storage retains T02's naive-UTC defaults and their Pydantic JSON round trips."""
     _, repository, story, branch = make_repository(tmp_path)
     segment = make_segment(story, branch, "aware-datetimes")
 
-    assert story.created_at.tzinfo is UTC
-    assert story.updated_at.tzinfo is UTC
-    assert branch.created_at.tzinfo is UTC
-    assert segment.created_at.tzinfo is UTC
+    assert story.created_at.tzinfo is None
+    assert story.updated_at.tzinfo is None
+    assert branch.created_at.tzinfo is None
+    assert segment.created_at.tzinfo is None
     assert repository.get_story(story.id) == story
     assert repository.commit_segment_bundle(segment) == segment
     assert repository.get_segment(segment.id) == segment

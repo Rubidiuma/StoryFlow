@@ -8,6 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from storyflow.domain.enums import ChoiceFrequency, ChoiceType, StoryStatus
 
 
+def _naive_utc_now() -> datetime:
+    """Return UTC in T02's naive-datetime representation without using deprecated utcnow."""
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 def _require_non_blank(value: str, message: str) -> str:
     """Reject strings that contain no visible content."""
     if not value.strip():
@@ -204,8 +209,8 @@ class Story(BaseModel):
     current_branch_id: UUID | None = None
     pause_requested: bool = Field(False)
     version: int = Field(1, description="Optimistic lock version")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=_naive_utc_now)
+    updated_at: datetime = Field(default_factory=_naive_utc_now)
 
 
 class StoryArc(BaseModel):
@@ -243,7 +248,7 @@ class StorySegment(BaseModel):
     scene_plan: dict[str, Any] | None = None
     generation_key: str = Field(..., description="Idempotent key for generation")
     status: str = Field("pending", description="pending, completed, failed")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=_naive_utc_now)
 
     @field_validator("content")
     @classmethod
@@ -266,7 +271,7 @@ class Branch(BaseModel):
     fork_segment_id: UUID | None = None
     name: str = Field(default="Branch", description="User-friendly branch name")
     head_segment_id: UUID | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=_naive_utc_now)
 
 
 class MemorySnapshot(BaseModel):
@@ -305,4 +310,4 @@ class GenerationEvent(BaseModel):
     input_token_estimate: int = Field(0)
     output_size: int = Field(0)
     error_code: str | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=_naive_utc_now)
