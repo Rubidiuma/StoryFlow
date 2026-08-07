@@ -1,5 +1,7 @@
 """Story state machine implementation per SPEC §6."""
-from typing import Dict, Set
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import ClassVar
 
 from storyflow.domain.enums import StoryStatus
 
@@ -7,7 +9,41 @@ from storyflow.domain.enums import StoryStatus
 class InvalidTransitionError(Exception):
     """Raised when an invalid state transition is attempted."""
 
-    pass
+
+_VALID_TRANSITIONS: Mapping[StoryStatus, frozenset[StoryStatus]] = MappingProxyType(
+    {
+        StoryStatus.DRAFT: frozenset({StoryStatus.IDLE}),
+        StoryStatus.IDLE: frozenset(
+            {StoryStatus.PLANNING, StoryStatus.PAUSED, StoryStatus.ERROR}
+        ),
+        StoryStatus.PLANNING: frozenset(
+            {StoryStatus.STREAMING, StoryStatus.ERROR, StoryStatus.PAUSED}
+        ),
+        StoryStatus.STREAMING: frozenset(
+            {StoryStatus.COMMITTING, StoryStatus.ERROR, StoryStatus.PAUSED}
+        ),
+        StoryStatus.COMMITTING: frozenset(
+            {
+                StoryStatus.IDLE,
+                StoryStatus.WAITING_CHOICE,
+                StoryStatus.ERROR,
+                StoryStatus.PAUSED,
+            }
+        ),
+        StoryStatus.WAITING_CHOICE: frozenset(
+            {StoryStatus.IDLE, StoryStatus.PAUSED, StoryStatus.ERROR}
+        ),
+        StoryStatus.PAUSED: frozenset({StoryStatus.IDLE, StoryStatus.ERROR}),
+        StoryStatus.ERROR: frozenset({StoryStatus.IDLE, StoryStatus.PAUSED}),
+    }
+)
+
+
+def transition(current: StoryStatus, target: StoryStatus) -> StoryStatus:
+    """Return a legal target status without changing external state."""
+    if target not in _VALID_TRANSITIONS.get(current, frozenset()):
+        raise InvalidTransitionError(f"Cannot transition from {current} to {target}")
+    return target
 
 
 class StoryStateMachine:
@@ -19,40 +55,7 @@ class StoryStateMachine:
     - All transitions are logged for debugging (implemented in service layer)
     """
 
-    # Define valid transitions as a mapping: from_state -> set of allowed_to_states
-    VALID_TRANSITIONS: Dict[StoryStatus, Set[StoryStatus]] = {
-        StoryStatus.DRAFT: {StoryStatus.IDLE},
-        StoryStatus.IDLE: {StoryStatus.PLANNING, StoryStatus.PAUSED, StoryStatus.ERROR},
-        StoryStatus.PLANNING: {
-            StoryStatus.STREAMING,
-            StoryStatus.ERROR,
-            StoryStatus.PAUSED,
-        },
-        StoryStatus.STREAMING: {
-            StoryStatus.COMMITTING,
-            StoryStatus.ERROR,
-            StoryStatus.PAUSED,
-        },
-        StoryStatus.COMMITTING: {
-            StoryStatus.IDLE,
-            StoryStatus.WAITING_CHOICE,
-            StoryStatus.ERROR,
-            StoryStatus.PAUSED,
-        },
-        StoryStatus.WAITING_CHOICE: {
-            StoryStatus.IDLE,
-            StoryStatus.PAUSED,
-            StoryStatus.ERROR,
-        },
-        StoryStatus.PAUSED: {
-            StoryStatus.IDLE,
-            StoryStatus.ERROR,
-        },
-        StoryStatus.ERROR: {
-            StoryStatus.IDLE,
-            StoryStatus.PAUSED,
-        },
-    }
+    VALID_TRANSITIONS: ClassVar[Mapping[StoryStatus, frozenset[StoryStatus]]] = _VALID_TRANSITIONS
 
     def __init__(self, initial_state: StoryStatus = StoryStatus.DRAFT):
         """Initialize state machine with initial state."""
@@ -67,14 +70,7 @@ class StoryStateMachine:
         Raises:
             InvalidTransitionError: If transition is not allowed.
         """
-        if target_state not in self.VALID_TRANSITIONS.get(
-            self.current_state, set()
-        ):
-            raise InvalidTransitionError(
-                f"Cannot transition from {self.current_state} to {target_state}"
-            )
-
-        self.current_state = target_state
+        self.current_state = transition(self.current_state, target_state)
 
     def can_transition_to(self, target_state: StoryStatus) -> bool:
         """Check if transition is allowed without performing it.
@@ -85,4 +81,8 @@ class StoryStateMachine:
         Returns:
             True if transition is valid, False otherwise.
         """
-        return target_state in self.VALID_TRANSITIONS.get(self.current_state, set())
+        try:
+            transition(self.current_state, target_state)
+        except InvalidTransitionError:
+            return False
+        return True

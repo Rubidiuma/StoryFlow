@@ -1,11 +1,27 @@
 """Unit tests for story state machine transitions."""
 import pytest
+
+from storyflow import domain
 from storyflow.domain.enums import StoryStatus
-from storyflow.domain.state_machine import StoryStateMachine, InvalidTransitionError
+from storyflow.domain.state_machine import InvalidTransitionError, StoryStateMachine
 
 
 class TestStateTransitions:
     """Test valid and invalid state transitions."""
+
+    def test_public_transition_returns_target_without_mutating_a_state_machine(self):
+        """The pure transition function returns a legal target without external mutation."""
+        machine = StoryStateMachine(initial_state=StoryStatus.DRAFT)
+
+        result = domain.transition(StoryStatus.DRAFT, StoryStatus.IDLE)
+
+        assert result == StoryStatus.IDLE
+        assert machine.current_state == StoryStatus.DRAFT
+
+    def test_public_transition_rejects_illegal_targets(self):
+        """The pure transition function enforces the same legal transition table."""
+        with pytest.raises(domain.InvalidTransitionError):
+            domain.transition(StoryStatus.DRAFT, StoryStatus.PLANNING)
 
     def test_draft_to_planning_rejected(self):
         """DRAFT -> PLANNING should be rejected; must confirm to IDLE first."""
