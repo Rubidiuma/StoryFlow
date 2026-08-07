@@ -1,19 +1,36 @@
 """Persistence operations for StoryFlow's Pydantic domain models."""
 import sqlite3
+from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import BaseModel
 
 from storyflow.db.database import Database
+from storyflow.domain.enums import StoryStatus
 from storyflow.domain.models import (
     Branch,
+    CharacterState,
     ChoicePoint,
     GenerationEvent,
     MemorySnapshot,
     Story,
+    StoryArc,
     StoryBible,
     StorySegment,
 )
+from storyflow.domain.state_machine import InvalidTransitionError, transition
+
+
+class StoryNotFoundError(LookupError):
+    """The requested story does not exist."""
+
+
+class IncompleteBibleBundleError(ValueError):
+    """A story is missing at least one record required for confirmation."""
+
+
+class IllegalStoryStateError(ValueError):
+    """The current story state cannot be confirmed."""
 
 
 def _json(model: BaseModel) -> str:
@@ -87,6 +104,178 @@ class StoryRepository:
                 "SELECT payload FROM story_bibles WHERE story_id = ?", (str(story_id),)
             ).fetchone()
         return StoryBible.model_validate_json(row["payload"]) if row else None
+
+    def replace_generated_bible_bundle(
+        self,
+        story: Story,
+        bible: StoryBible,
+        branch: Branch,
+        characters: list[CharacterState],
+        first_arc: StoryArc,
+    ) -> Story:
+        """Persist the records that compose one generated bundle."""
+        if bible.story_id != story.id or branch.story_id != story.id:
+            raise ValueError("Bible and branch must belong to the story")
+        if branch.parent_branch_id is not None:
+            raise ValueError("Initial Bible branch must be a root branch")
+        if not characters:
+            raise ValueError("Generated Bible bundle requires characters")
+        if any(
+            character.story_id != story.id or character.branch_id != branch.id
+            for character in characters
+        ):
+            raise ValueError("Characters must belong to the generated story branch")
+        if first_arc.story_id != story.id or first_arc.branch_id != branch.id:
+            raise ValueError("First arc must belong to the generated story branch")
+
+        with self.database.transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload FROM stories WHERE id = ?", (str(story.id),)
+            ).fetchone()
+            if story_row is None:
+                raise ValueError("story does not exist")
+            persisted_story = Story.model_validate_json(story_row["payload"])
+            unbound_story = persisted_story.model_copy(update={"current_branch_id": None})
+            connection.execute(
+                "UPDATE stories SET current_branch_id = NULL, payload = ? WHERE id = ?",
+                (_json(unbound_story), str(story.id)),
+            )
+            connection.execute(
+                "DELETE FROM character_states WHERE story_id = ?", (str(story.id),)
+            )
+            connection.execute("DELETE FROM story_arcs WHERE story_id = ?", (str(story.id),))
+            connection.execute("DELETE FROM story_bibles WHERE story_id = ?", (str(story.id),))
+            connection.execute("DELETE FROM branches WHERE story_id = ?", (str(story.id),))
+            connection.execute(
+                """
+                INSERT INTO branches (
+                    id, story_id, parent_branch_id, fork_choice_id, fork_segment_id,
+                    head_segment_id, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(branch.id),
+                    str(branch.story_id),
+                    _optional_id(branch.parent_branch_id),
+                    _optional_id(branch.fork_choice_id),
+                    _optional_id(branch.fork_segment_id),
+                    _optional_id(branch.head_segment_id),
+                    _json(branch),
+                ),
+            )
+            connection.execute(
+                "INSERT INTO story_bibles (story_id, payload) VALUES (?, ?)",
+                (str(bible.story_id), _json(bible)),
+            )
+            for character in characters:
+                connection.execute(
+                    """
+                    INSERT INTO character_states (id, story_id, branch_id, payload)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        str(character.id),
+                        str(character.story_id),
+                        str(character.branch_id),
+                        _json(character),
+                    ),
+                )
+            connection.execute(
+                """
+                INSERT INTO story_arcs (id, story_id, branch_id, payload)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    str(first_arc.id),
+                    str(first_arc.story_id),
+                    str(first_arc.branch_id),
+                    _json(first_arc),
+                ),
+            )
+            updated_story = persisted_story.model_copy(update={"current_branch_id": branch.id})
+            connection.execute(
+                "UPDATE stories SET current_branch_id = ?, payload = ? WHERE id = ?",
+                (str(branch.id), _json(updated_story), str(story.id)),
+            )
+        return updated_story
+
+    def list_character_states(self, story_id: UUID) -> list[CharacterState]:
+        """Return generated character state in persistence order for one story."""
+        with self.database.read() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM character_states WHERE story_id = ? ORDER BY rowid",
+                (str(story_id),),
+            ).fetchall()
+        return [CharacterState.model_validate_json(row["payload"]) for row in rows]
+
+    def list_story_arcs(self, story_id: UUID) -> list[StoryArc]:
+        """Return generated arcs in persistence order for one story."""
+        with self.database.read() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM story_arcs WHERE story_id = ? ORDER BY rowid",
+                (str(story_id),),
+            ).fetchall()
+        return [StoryArc.model_validate_json(row["payload"]) for row in rows]
+
+    def confirm_bible(self, story_id: UUID) -> Story:
+        """Atomically verify the generated bundle and transition its draft to IDLE."""
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT current_branch_id, payload FROM stories WHERE id = ?",
+                (str(story_id),),
+            ).fetchone()
+            if row is None:
+                raise StoryNotFoundError("story does not exist")
+            story = Story.model_validate_json(row["payload"])
+            if story.status == StoryStatus.IDLE:
+                return story
+            if story.status != StoryStatus.DRAFT:
+                raise IllegalStoryStateError("story cannot be confirmed from its current state")
+            branch_id = row["current_branch_id"]
+            complete = branch_id is not None and all(
+                (
+                    connection.execute(
+                        "SELECT 1 FROM story_bibles WHERE story_id = ?",
+                        (str(story_id),),
+                    ).fetchone(),
+                    connection.execute(
+                        "SELECT 1 FROM branches WHERE id = ? AND story_id = ?",
+                        (branch_id, str(story_id)),
+                    ).fetchone(),
+                    connection.execute(
+                        """
+                        SELECT 1 FROM character_states
+                        WHERE story_id = ? AND branch_id = ? LIMIT 1
+                        """,
+                        (str(story_id), branch_id),
+                    ).fetchone(),
+                    connection.execute(
+                        """
+                        SELECT 1 FROM story_arcs
+                        WHERE story_id = ? AND branch_id = ? LIMIT 1
+                        """,
+                        (str(story_id), branch_id),
+                    ).fetchone(),
+                )
+            )
+            if not complete:
+                raise IncompleteBibleBundleError("complete Bible bundle required")
+            try:
+                target = transition(story.status, StoryStatus.IDLE)
+            except InvalidTransitionError as exc:
+                raise IllegalStoryStateError(str(exc)) from exc
+            updated = story.model_copy(
+                update={
+                    "status": target,
+                    "version": story.version + 1,
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
+                }
+            )
+            connection.execute(
+                "UPDATE stories SET payload = ? WHERE id = ?",
+                (_json(updated), str(story_id)),
+            )
+        return updated
 
     def create_branch(self, branch: Branch) -> Branch:
         with self.database.transaction() as connection:

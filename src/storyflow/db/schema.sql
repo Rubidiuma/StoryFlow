@@ -27,6 +27,24 @@ CREATE TABLE IF NOT EXISTS branches (
     FOREIGN KEY (head_segment_id, story_id) REFERENCES story_segments(id, story_id)
 );
 
+CREATE TABLE IF NOT EXISTS character_states (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL REFERENCES stories(id),
+    branch_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    UNIQUE (id, story_id),
+    FOREIGN KEY (branch_id, story_id) REFERENCES branches(id, story_id)
+);
+
+CREATE TABLE IF NOT EXISTS story_arcs (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL REFERENCES stories(id),
+    branch_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    UNIQUE (id, story_id),
+    FOREIGN KEY (branch_id, story_id) REFERENCES branches(id, story_id)
+);
+
 CREATE TABLE IF NOT EXISTS story_segments (
     id TEXT PRIMARY KEY,
     story_id TEXT NOT NULL REFERENCES stories(id),
@@ -262,3 +280,9 @@ END;
 
 CREATE INDEX IF NOT EXISTS idx_memory_snapshots_branch_id
     ON memory_snapshots(branch_id);
+
+CREATE INDEX IF NOT EXISTS idx_character_states_story_branch
+    ON character_states(story_id, branch_id);
+
+CREATE INDEX IF NOT EXISTS idx_story_arcs_story_branch
+    ON story_arcs(story_id, branch_id);

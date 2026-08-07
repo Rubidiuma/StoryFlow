@@ -40,6 +40,12 @@ class StoryConfig(BaseModel):
     forbidden_elements: str | None = Field(None, max_length=1000)
     ending_tendency: str | None = Field(None, max_length=1000)
 
+    @field_validator("genre", "structure", "world_background", "protagonist_desc", "style")
+    @classmethod
+    def required_text_is_not_blank(cls, value: str) -> str:
+        """Required configuration text must contain visible content."""
+        return _require_non_blank(value, "StoryConfig required text must not be blank")
+
     @model_validator(mode="after")
     def check_total_length(self) -> Self:
         """Total input length should not exceed 6000 characters per SPEC §5.1."""

@@ -2,8 +2,15 @@
 
 from fastapi import FastAPI
 
+from storyflow.api.routes.stories import create_story_router
+from storyflow.db.repositories import StoryRepository
+from storyflow.llm.base import LLMClient
 
-def create_app() -> FastAPI:
+
+def create_app(
+    repository: StoryRepository | None = None,
+    llm_client: LLMClient | None = None,
+) -> FastAPI:
     """Create the StoryFlow application."""
     app = FastAPI(title="StoryFlow", version="0.1.0")
 
@@ -17,6 +24,7 @@ def create_app() -> FastAPI:
             "llm": "unconfigured",
         }
 
+    app.include_router(create_story_router(repository, llm_client))
     return app
 
 
