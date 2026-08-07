@@ -4,6 +4,10 @@ from collections.abc import AsyncIterator, Mapping
 from typing import Any, Protocol, runtime_checkable
 
 
+class InvalidStructuredResponseError(ValueError):
+    """A structured LLM response could not be represented as a JSON object."""
+
+
 @runtime_checkable
 class LLMClient(Protocol):
     """One structured request or one streamed text request to an LLM."""

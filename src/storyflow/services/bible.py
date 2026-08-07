@@ -1,8 +1,9 @@
 """Structured generation and validation for initial story Bibles."""
 
+import json
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from storyflow.db.repositories import StoryRepository
 from storyflow.domain.models import (
@@ -12,7 +13,7 @@ from storyflow.domain.models import (
     StoryArc,
     StoryBible,
 )
-from storyflow.llm.base import LLMClient
+from storyflow.llm.base import InvalidStructuredResponseError, LLMClient
 from storyflow.prompts.bible import BIBLE_PROMPT_V1
 
 
@@ -99,7 +100,7 @@ async def generate_validated_bible(
                 context=context,
             )
             return GeneratedBiblePayload.model_validate(response)
-        except (TypeError, ValueError):
+        except (json.JSONDecodeError, InvalidStructuredResponseError, ValidationError):
             continue
     raise BibleGenerationValidationError("invalid structured Bible response")
 

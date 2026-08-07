@@ -11,6 +11,7 @@ from storyflow.db.repositories import (
     StoryNotFoundError,
     StoryRepository,
 )
+from storyflow.domain.enums import StoryStatus
 from storyflow.domain.models import Story, StoryConfig
 from storyflow.llm.base import LLMClient
 from storyflow.services.bible import (
@@ -62,6 +63,14 @@ def create_story_router(
         story = repository.get_story(story_id)
         if story is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Story not found")
+        if story.status != StoryStatus.DRAFT:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "BIBLE_GENERATION_CONFLICT",
+                    "message": "Story cannot generate a Bible from its current state or version.",
+                },
+            )
         try:
             generated = await generate_validated_bible(story, llm_client)
         except BibleGenerationValidationError as exc:
@@ -73,7 +82,16 @@ def create_story_router(
                     "retryable": True,
                 },
             ) from exc
-        return persist_generated_bible(story, generated, repository)
+        try:
+            return persist_generated_bible(story, generated, repository)
+        except IllegalStoryStateError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "BIBLE_GENERATION_CONFLICT",
+                    "message": "Story cannot generate a Bible from its current state or version.",
+                },
+            ) from exc
 
     @router.post("/{story_id}/bible/confirm", response_model=Story)
     def confirm_bible(story_id: UUID) -> Story:

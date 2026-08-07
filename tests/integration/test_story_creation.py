@@ -1,6 +1,8 @@
 """Integration tests for draft creation and the generated Bible lifecycle."""
 
+import asyncio
 import sqlite3
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -73,6 +75,23 @@ def make_repository(tmp_path: Path) -> tuple[Database, StoryRepository]:
     database = Database(tmp_path / "storyflow.sqlite3")
     database.initialize()
     return database, StoryRepository(database)
+
+
+class BlockingSecondFakeLLMClient(FakeLLMClient):
+    """Pause the second structured call so a concurrent confirmation can commit first."""
+
+    def __init__(self, *, json_responses: list[object]) -> None:
+        super().__init__(json_responses=json_responses)
+        self.second_call_started = asyncio.Event()
+        self.release_second_call = asyncio.Event()
+
+    async def generate_json(
+        self, *, prompt: str, context: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        if len(self.calls) == 1:
+            self.second_call_started.set()
+            await self.release_second_call.wait()
+        return await super().generate_json(prompt=prompt, context=context)
 
 
 @pytest.mark.asyncio
@@ -196,6 +215,48 @@ async def test_two_invalid_bible_responses_return_502_and_preserve_only_draft(
     with database.read() as connection:
         assert connection.execute("SELECT COUNT(*) FROM story_bibles").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM branches").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("error_type", [TypeError, ValueError], ids=["type", "value"])
+@pytest.mark.asyncio
+async def test_non_structured_llm_errors_are_not_retried(
+    tmp_path: Path,
+    error_type: type[Exception],
+) -> None:
+    """Client implementation failures are not model-output validation failures."""
+    database, repository = make_repository(tmp_path)
+    llm_client = FakeLLMClient(
+        json_responses=[
+            error_type("client implementation failure"),
+            valid_bible_generation(),
+        ]
+    )
+    transport = httpx.ASGITransport(
+        app=create_app(repository=repository, llm_client=llm_client)
+    )
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        draft_response = await client.post("/stories", json=valid_story_request())
+        story_id = draft_response.json()["id"]
+        with pytest.raises(error_type, match="client implementation failure"):
+            await client.post(f"/stories/{story_id}/bible/generate")
+
+    assert len(llm_client.calls) == 1
+    story = repository.get_story(story_id)
+    assert story is not None
+    assert story.status.value == "DRAFT"
+    assert story.current_branch_id is None
+    with database.read() as connection:
+        counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("story_bibles", "branches", "character_states", "story_arcs")
+        }
+    assert counts == {
+        "story_bibles": 0,
+        "branches": 0,
+        "character_states": 0,
+        "story_arcs": 0,
+    }
 
 
 @pytest.mark.asyncio
@@ -372,6 +433,125 @@ async def test_regeneration_replaces_initial_bundle_without_duplicate_rows(
     }
 
 
+@pytest.mark.asyncio
+async def test_generation_rejects_confirmed_story_before_calling_llm(tmp_path: Path) -> None:
+    """A confirmed Bible cannot be regenerated or consume another model response."""
+    database, repository = make_repository(tmp_path)
+    replacement = valid_bible_generation()
+    replacement["world_rules"] = "This confirmed foundation must not be persisted."
+    llm_client = FakeLLMClient(
+        json_responses=[valid_bible_generation(), replacement]
+    )
+    transport = httpx.ASGITransport(
+        app=create_app(repository=repository, llm_client=llm_client)
+    )
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        draft_response = await client.post("/stories", json=valid_story_request())
+        story_id = draft_response.json()["id"]
+        generation_response = await client.post(f"/stories/{story_id}/bible/generate")
+        initial_bundle = generation_response.json()
+        confirmation_response = await client.post(f"/stories/{story_id}/bible/confirm")
+        response = await client.post(f"/stories/{story_id}/bible/generate")
+
+    assert confirmation_response.status_code == 200
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": {
+            "code": "BIBLE_GENERATION_CONFLICT",
+            "message": "Story cannot generate a Bible from its current state or version.",
+        }
+    }
+    assert len(llm_client.calls) == 1
+    story = repository.get_story(story_id)
+    assert story is not None
+    assert story.status.value == "IDLE"
+    assert str(story.current_branch_id) == initial_bundle["initial_branch_id"]
+    bible = repository.get_bible(story_id)
+    assert bible is not None
+    assert bible.world_rules == "每次使用云海魔法都会遗失一段记忆。"
+    with database.read() as connection:
+        counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("story_bibles", "branches", "character_states", "story_arcs")
+        }
+    assert counts == {
+        "story_bibles": 1,
+        "branches": 1,
+        "character_states": 2,
+        "story_arcs": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_generation_cannot_commit_after_concurrent_confirmation(tmp_path: Path) -> None:
+    """A stale in-flight generation cannot replace the bundle that was just confirmed."""
+    database, repository = make_repository(tmp_path)
+    replacement = valid_bible_generation()
+    replacement.update(
+        {
+            "world_rules": "This stale replacement must be discarded.",
+            "characters": [{"name": "迟到者", "role": "protagonist"}],
+        }
+    )
+    llm_client = BlockingSecondFakeLLMClient(
+        json_responses=[valid_bible_generation(), replacement]
+    )
+    transport = httpx.ASGITransport(
+        app=create_app(repository=repository, llm_client=llm_client)
+    )
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        draft_response = await client.post("/stories", json=valid_story_request())
+        story_id = draft_response.json()["id"]
+        initial_response = await client.post(f"/stories/{story_id}/bible/generate")
+        initial_bundle = initial_response.json()
+        generation_task = asyncio.create_task(
+            client.post(f"/stories/{story_id}/bible/generate")
+        )
+        await asyncio.wait_for(llm_client.second_call_started.wait(), timeout=1)
+        confirmation_response = await client.post(f"/stories/{story_id}/bible/confirm")
+        llm_client.release_second_call.set()
+        response = await generation_task
+
+    assert confirmation_response.status_code == 200
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": {
+            "code": "BIBLE_GENERATION_CONFLICT",
+            "message": "Story cannot generate a Bible from its current state or version.",
+        }
+    }
+    assert len(llm_client.calls) == 2
+    story = repository.get_story(story_id)
+    assert story is not None
+    assert story.status.value == "IDLE"
+    assert story.version == 2
+    assert str(story.current_branch_id) == initial_bundle["initial_branch_id"]
+    bible = repository.get_bible(story_id)
+    assert bible is not None
+    assert bible.model_dump(mode="json") == initial_bundle["bible"]
+    assert [
+        character.model_dump(mode="json")
+        for character in repository.list_character_states(story_id)
+    ] == initial_bundle["characters"]
+    assert [arc.model_dump(mode="json") for arc in repository.list_story_arcs(story_id)] == [
+        initial_bundle["first_arc"]
+    ]
+    assert repository.get_branch(initial_bundle["initial_branch_id"]) is not None
+    with database.read() as connection:
+        counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("story_bibles", "branches", "character_states", "story_arcs")
+        }
+    assert counts == {
+        "story_bibles": 1,
+        "branches": 1,
+        "character_states": 2,
+        "story_arcs": 1,
+    }
+
+
 @pytest.mark.parametrize(
     "missing_component",
     ["whole_bundle", "story_bibles", "character_states", "story_arcs", "current_branch"],
@@ -421,6 +601,45 @@ async def test_confirmation_rejects_each_incomplete_bundle_without_story_mutatio
     assert persisted is not None
     assert persisted.status.value == "DRAFT"
     assert persisted.version == 1
+
+
+@pytest.mark.asyncio
+async def test_confirmation_rejects_relational_payload_branch_mismatch(tmp_path: Path) -> None:
+    """Confirmation cannot trust a relational branch pointer absent from the Story payload."""
+    database, repository = make_repository(tmp_path)
+    llm_client = FakeLLMClient(json_responses=[valid_bible_generation()])
+    transport = httpx.ASGITransport(
+        app=create_app(repository=repository, llm_client=llm_client)
+    )
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        draft_response = await client.post("/stories", json=valid_story_request())
+        story_id = draft_response.json()["id"]
+        generation_response = await client.post(f"/stories/{story_id}/bible/generate")
+        branch_id = generation_response.json()["initial_branch_id"]
+        story = repository.get_story(story_id)
+        assert story is not None
+        mismatched_story = story.model_copy(update={"current_branch_id": None})
+        with database.transaction() as connection:
+            connection.execute(
+                "UPDATE stories SET payload = ? WHERE id = ?",
+                (mismatched_story.model_dump_json(), story_id),
+            )
+        response = await client.post(f"/stories/{story_id}/bible/confirm")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": {
+            "code": "BIBLE_BUNDLE_INCOMPLETE",
+            "message": "A complete generated Bible bundle is required.",
+        }
+    }
+    assert repository.get_story(story_id) == mismatched_story
+    with database.read() as connection:
+        relational_branch_id = connection.execute(
+            "SELECT current_branch_id FROM stories WHERE id = ?", (story_id,)
+        ).fetchone()[0]
+    assert relational_branch_id == branch_id
 
 
 @pytest.mark.asyncio
@@ -482,6 +701,37 @@ async def test_repeated_confirmation_returns_unchanged_story_without_new_records
             for table in ("story_bibles", "branches", "character_states", "story_arcs")
         }
     assert counts_after == counts_before
+
+
+@pytest.mark.asyncio
+async def test_repeated_confirmation_rejects_incomplete_idle_bundle(tmp_path: Path) -> None:
+    """IDLE idempotency applies only while the complete confirmed bundle still exists."""
+    database, repository = make_repository(tmp_path)
+    llm_client = FakeLLMClient(json_responses=[valid_bible_generation()])
+    transport = httpx.ASGITransport(
+        app=create_app(repository=repository, llm_client=llm_client)
+    )
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        draft_response = await client.post("/stories", json=valid_story_request())
+        story_id = draft_response.json()["id"]
+        await client.post(f"/stories/{story_id}/bible/generate")
+        confirmation_response = await client.post(f"/stories/{story_id}/bible/confirm")
+        confirmed_story = repository.get_story(story_id)
+        assert confirmed_story is not None
+        with database.transaction() as connection:
+            connection.execute("DELETE FROM story_arcs WHERE story_id = ?", (story_id,))
+        response = await client.post(f"/stories/{story_id}/bible/confirm")
+
+    assert confirmation_response.status_code == 200
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": {
+            "code": "BIBLE_BUNDLE_INCOMPLETE",
+            "message": "A complete generated Bible bundle is required.",
+        }
+    }
+    assert repository.get_story(story_id) == confirmed_story
 
 
 @pytest.mark.asyncio

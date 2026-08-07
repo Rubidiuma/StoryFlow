@@ -135,6 +135,13 @@ class StoryRepository:
             if story_row is None:
                 raise ValueError("story does not exist")
             persisted_story = Story.model_validate_json(story_row["payload"])
+            if (
+                persisted_story.status != StoryStatus.DRAFT
+                or persisted_story.version != story.version
+            ):
+                raise IllegalStoryStateError(
+                    "story cannot generate a Bible from its current state or version"
+                )
             unbound_story = persisted_story.model_copy(update={"current_branch_id": None})
             connection.execute(
                 "UPDATE stories SET current_branch_id = NULL, payload = ? WHERE id = ?",
@@ -227,39 +234,43 @@ class StoryRepository:
             if row is None:
                 raise StoryNotFoundError("story does not exist")
             story = Story.model_validate_json(row["payload"])
-            if story.status == StoryStatus.IDLE:
-                return story
-            if story.status != StoryStatus.DRAFT:
+            if story.status not in (StoryStatus.DRAFT, StoryStatus.IDLE):
                 raise IllegalStoryStateError("story cannot be confirmed from its current state")
             branch_id = row["current_branch_id"]
-            complete = branch_id is not None and all(
-                (
-                    connection.execute(
-                        "SELECT 1 FROM story_bibles WHERE story_id = ?",
-                        (str(story_id),),
-                    ).fetchone(),
-                    connection.execute(
-                        "SELECT 1 FROM branches WHERE id = ? AND story_id = ?",
-                        (branch_id, str(story_id)),
-                    ).fetchone(),
-                    connection.execute(
-                        """
-                        SELECT 1 FROM character_states
-                        WHERE story_id = ? AND branch_id = ? LIMIT 1
-                        """,
-                        (str(story_id), branch_id),
-                    ).fetchone(),
-                    connection.execute(
-                        """
-                        SELECT 1 FROM story_arcs
-                        WHERE story_id = ? AND branch_id = ? LIMIT 1
-                        """,
-                        (str(story_id), branch_id),
-                    ).fetchone(),
+            complete = (
+                branch_id is not None
+                and _optional_id(story.current_branch_id) == branch_id
+                and all(
+                    (
+                        connection.execute(
+                            "SELECT 1 FROM story_bibles WHERE story_id = ?",
+                            (str(story_id),),
+                        ).fetchone(),
+                        connection.execute(
+                            "SELECT 1 FROM branches WHERE id = ? AND story_id = ?",
+                            (branch_id, str(story_id)),
+                        ).fetchone(),
+                        connection.execute(
+                            """
+                            SELECT 1 FROM character_states
+                            WHERE story_id = ? AND branch_id = ? LIMIT 1
+                            """,
+                            (str(story_id), branch_id),
+                        ).fetchone(),
+                        connection.execute(
+                            """
+                            SELECT 1 FROM story_arcs
+                            WHERE story_id = ? AND branch_id = ? LIMIT 1
+                            """,
+                            (str(story_id), branch_id),
+                        ).fetchone(),
+                    )
                 )
             )
             if not complete:
                 raise IncompleteBibleBundleError("complete Bible bundle required")
+            if story.status == StoryStatus.IDLE:
+                return story
             try:
                 target = transition(story.status, StoryStatus.IDLE)
             except InvalidTransitionError as exc:

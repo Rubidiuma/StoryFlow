@@ -6,9 +6,7 @@ from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from copy import deepcopy
 from typing import Any
 
-
-class InvalidStructuredResponseError(ValueError):
-    """Raised when a structured response is valid JSON but not an object."""
+from storyflow.llm.base import InvalidStructuredResponseError
 
 
 class StreamInterruptedError(ConnectionError):
