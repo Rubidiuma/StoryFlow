@@ -1,9 +1,10 @@
 """Interfaces shared by LLM providers and test doubles."""
 
 from collections.abc import AsyncIterator, Mapping
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
+@runtime_checkable
 class LLMClient(Protocol):
     """One structured request or one streamed text request to an LLM."""
 

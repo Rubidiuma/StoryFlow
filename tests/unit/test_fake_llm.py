@@ -9,10 +9,21 @@ from storyflow.llm.fake import FakeLLMClient, InvalidStructuredResponseError, St
 from storyflow.llm.provider import ProviderLLMClient
 
 
-def test_llm_client_declares_structured_and_streaming_operations() -> None:
-    """Consumers can depend on one interface for JSON and streaming requests."""
-    assert callable(LLMClient.generate_json)
-    assert callable(LLMClient.stream_text)
+async def _read_bible_title(client: LLMClient) -> str:
+    """Use only the LLM boundary needed by a structured-generation consumer."""
+    response = await client.generate_json(prompt="make bible", context={"story_id": "story-1"})
+    return str(response["title"])
+
+
+@pytest.mark.asyncio
+async def test_typed_llm_consumer_uses_fake_client_through_the_protocol() -> None:
+    """A protocol-typed consumer receives the fake's scripted structured response."""
+    client: LLMClient = FakeLLMClient(json_responses=[{"title": "The Lantern Road"}])
+
+    title = await _read_bible_title(client)
+
+    assert title == "The Lantern Road"
+    assert isinstance(client, LLMClient)
 
 
 @pytest.mark.asyncio
