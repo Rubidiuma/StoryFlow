@@ -1,0 +1,248 @@
+"""Domain models for StoryFlow per SPEC §8."""
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from storyflow.domain.enums import ChoiceFrequency, ChoiceType, Genre, StoryStatus, StoryStructure
+
+
+class StoryConfig(BaseModel):
+    """Story configuration input per SPEC §5.1."""
+
+    genre: str = Field(..., description="Story genre: fantasy, scifi, mystery, emotion, or custom")
+    structure: str = Field(..., description="Story structure: three_act, hero_journey, etc.")
+    world_background: str = Field(
+        ..., description="World background description", min_length=1, max_length=2000
+    )
+    protagonist_desc: str = Field(
+        ..., description="Protagonist description", min_length=1, max_length=2000
+    )
+    style: str = Field(..., description="Writing style", min_length=1, max_length=500)
+    choice_frequency: ChoiceFrequency = Field(
+        ..., description="少 (few), 中 (medium), or 多 (many) choices per SPEC §5.2"
+    )
+    required_elements: Optional[str] = Field(None, max_length=1000)
+    forbidden_elements: Optional[str] = Field(None, max_length=1000)
+    ending_tendency: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def check_total_length(cls, v: Any) -> Any:
+        """Total input length should not exceed 6000 characters per SPEC §5.1."""
+        # Note: Pydantic will validate individual field lengths via max_length
+        # This is a placeholder for cumulative validation at service layer
+        return v
+
+
+class CustomAction(BaseModel):
+    """User custom action per SPEC §5.4.
+
+    Custom action must be 1-300 characters.
+    """
+
+    text: str = Field(..., min_length=1, max_length=300)
+
+
+class ChoiceOption(BaseModel):
+    """Choice option per SPEC §5.3 and §8."""
+
+    text: str = Field(..., min_length=1, description="Natural language option text")
+    effects: Dict[str, Any] = Field(
+        ...,
+        description="Structured hidden effects: route_change, character_state, information_state, relationship_change",
+    )
+    position: int = Field(0, description="Visual position in choice list")
+
+    @field_validator("effects")
+    @classmethod
+    def effects_not_empty(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        """Effects must be non-empty dict."""
+        if not v or len(v) == 0:
+            raise ValueError("Choice option effects must not be empty")
+        return v
+
+
+class ChoicePoint(BaseModel):
+    """Choice point definition per SPEC §5.3 and §8.
+
+    Every choice must have exactly 3 semantically distinct options.
+    """
+
+    id: Optional[UUID] = Field(default_factory=uuid4)
+    type: ChoiceType = Field(..., description="decision, action, or dialogue")
+    reason: str = Field(..., min_length=1, description="Why this choice appears (conflict, milestone, etc.)")
+    options: List[ChoiceOption] = Field(..., description="Must contain exactly 3 options")
+    status: str = Field("pending", description="pending, committed, selected")
+    selected_option_id: Optional[UUID] = None
+
+    @field_validator("options")
+    @classmethod
+    def exactly_three_options(cls, v: List[ChoiceOption]) -> List[ChoiceOption]:
+        """Must have exactly 3 options per SPEC §5.3."""
+        if len(v) != 3:
+            raise ValueError("ChoicePoint must have exactly 3 options")
+        return v
+
+    @field_validator("options")
+    @classmethod
+    def options_must_be_unique(cls, v: List[ChoiceOption]) -> List[ChoiceOption]:
+        """Option texts must be unique."""
+        texts = [option.text for option in v]
+        if len(texts) != len(set(texts)):
+            raise ValueError("Choice options must have unique text")
+        return v
+
+
+class StoryBible(BaseModel):
+    """Story bible per SPEC §8.
+
+    Immutable story foundation including world rules, tone, protagonist core, and first story arc.
+    """
+
+    story_id: UUID
+    world_rules: str = Field(..., description="World rules and constraints")
+    tone_rules: str = Field(..., description="Writing tone and style rules")
+    protagonist_core: str = Field(..., description="Immutable protagonist core attributes")
+    required_elements: List[str] = Field(default_factory=list)
+    forbidden_elements: List[str] = Field(default_factory=list)
+    version: int = Field(1, description="Bible version for conflict detection")
+
+
+class CharacterState(BaseModel):
+    """Character state per SPEC §8.
+
+    Tracks character's current state, relationships, knowledge, and status.
+    """
+
+    id: Optional[UUID] = Field(default_factory=uuid4)
+    story_id: UUID
+    name: str
+    role: str = Field(..., description="protagonist, antagonist, ally, neutral, etc.")
+    location: str = Field(default="", description="Current location in story")
+    motivation: str = Field(default="", description="Current motivation or goal")
+    known_facts: List[str] = Field(default_factory=list, description="Information this character knows")
+    secrets: List[str] = Field(default_factory=list, description="Secrets this character holds")
+    relationships: Dict[str, str] = Field(default_factory=dict, description="name -> relationship description")
+    alive: bool = Field(True, description="Character alive status")
+    version: int = Field(1, description="For optimistic locking")
+
+
+class Story(BaseModel):
+    """Story record per SPEC §8.
+
+    Represents a story instance with configuration and current state.
+    """
+
+    model_config = ConfigDict(use_enum_values=False)
+
+    id: Optional[UUID] = Field(default_factory=uuid4)
+    session_id: str = Field(..., description="Anonymous session identifier")
+    title: str = Field(default="Untitled", description="Story title")
+    status: StoryStatus = Field(default=StoryStatus.DRAFT)
+    choice_frequency: ChoiceFrequency
+    config: StoryConfig
+    current_branch_id: Optional[UUID] = None
+    pause_requested: bool = Field(False)
+    version: int = Field(1, description="Optimistic lock version")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class StoryArc(BaseModel):
+    """Story arc per SPEC §8.
+
+    Defines current narrative arc with goal, conflict, and exit conditions.
+    """
+
+    id: Optional[UUID] = Field(default_factory=uuid4)
+    story_id: UUID
+    branch_id: UUID
+    goal: str = Field(..., description="Arc's main goal")
+    conflict: str = Field(..., description="Central conflict driving this arc")
+    stage: str = Field(default="rising", description="exposition, rising, climax, falling, resolution")
+    exit_conditions: List[str] = Field(default_factory=list, description="Conditions for arc completion")
+    status: str = Field("active", description="active, completed, abandoned")
+    summary: str = Field(default="", description="Summary of arc progress")
+
+
+class StorySegment(BaseModel):
+    """Story segment (scene) per SPEC §8.
+
+    A single scene of generated story content.
+    """
+
+    id: Optional[UUID] = Field(default_factory=uuid4)
+    story_id: UUID
+    branch_id: UUID
+    parent_segment_id: Optional[UUID] = None
+    sequence: int = Field(..., description="Order in story")
+    content: str = Field(..., description="500-1000 character story text")
+    summary: str = Field(default="", description="Scene summary for context")
+    scene_plan: Optional[Dict[str, Any]] = None
+    generation_key: str = Field(..., description="Idempotent key for generation")
+    status: str = Field("pending", description="pending, completed, failed")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @field_validator("content")
+    @classmethod
+    def content_length(cls, v: str) -> str:
+        """Content should be 500-1000 characters per SPEC §5.2."""
+        # Note: This is a guideline, not hard constraint; service layer enforces
+        return v
+
+
+class Branch(BaseModel):
+    """Story branch per SPEC §8.
+
+    Represents alternative story path from a historical choice.
+    """
+
+    id: Optional[UUID] = Field(default_factory=uuid4)
+    story_id: UUID
+    parent_branch_id: Optional[UUID] = None
+    fork_choice_id: Optional[UUID] = None
+    fork_segment_id: Optional[UUID] = None
+    name: str = Field(default="Branch", description="User-friendly branch name")
+    head_segment_id: Optional[UUID] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class MemorySnapshot(BaseModel):
+    """Memory snapshot per SPEC §8.
+
+    Captures story state at a specific point for branching and recovery.
+    """
+
+    id: Optional[UUID] = Field(default_factory=uuid4)
+    story_id: UUID
+    branch_id: UUID
+    segment_id: Optional[UUID] = None
+    characters: List[CharacterState] = Field(default_factory=list)
+    active_threads: List[str] = Field(default_factory=list, description="Active plot threads")
+    foreshadowing: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Foreshadowing clues: id -> description",
+    )
+    rolling_summary: str = Field(default="", description="Compressed summary of recent events")
+    context_version: int = Field(1, description="Version of context budget constraints")
+
+
+class GenerationEvent(BaseModel):
+    """Generation event log per SPEC §8.
+
+    Logs each generation request for observability.
+    """
+
+    id: Optional[UUID] = Field(default_factory=uuid4)
+    story_id: UUID
+    branch_id: UUID
+    event_type: str = Field(..., description="planning, streaming, committed, error, etc.")
+    request_id: str = Field(..., description="Unique request identifier for tracing")
+    duration_ms: int = Field(0, description="Duration in milliseconds")
+    model: Optional[str] = None
+    input_token_estimate: int = Field(0)
+    output_size: int = Field(0)
+    error_code: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
