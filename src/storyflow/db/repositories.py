@@ -28,6 +28,10 @@ class StoryRepository:
         self.database = database
 
     def create_story(self, story: Story) -> Story:
+        if story.current_branch_id is not None:
+            raise ValueError(
+                "a story must be created without a current branch; use set_current_branch"
+            )
         with self.database.transaction() as connection:
             connection.execute(
                 "INSERT INTO stories (id, session_id, current_branch_id, payload) VALUES (?, ?, ?, ?)",
@@ -41,6 +45,30 @@ class StoryRepository:
                 "SELECT payload FROM stories WHERE id = ?", (str(story_id),)
             ).fetchone()
         return Story.model_validate_json(row["payload"]) if row else None
+
+    def set_current_branch(self, story_id: UUID, branch_id: UUID) -> Story:
+        """Atomically select a branch that belongs to the story in both storage forms."""
+        with self.database.transaction() as connection:
+            story_row = connection.execute(
+                "SELECT payload FROM stories WHERE id = ?", (str(story_id),)
+            ).fetchone()
+            if story_row is None:
+                raise ValueError("story does not exist")
+            branch_row = connection.execute(
+                "SELECT story_id FROM branches WHERE id = ?", (str(branch_id),)
+            ).fetchone()
+            if branch_row is None:
+                raise ValueError("current branch does not exist")
+            if branch_row["story_id"] != str(story_id):
+                raise ValueError("current branch must belong to the same story")
+            story = Story.model_validate_json(story_row["payload"]).model_copy(
+                update={"current_branch_id": branch_id}
+            )
+            connection.execute(
+                "UPDATE stories SET current_branch_id = ?, payload = ? WHERE id = ?",
+                (str(branch_id), _json(story), str(story_id)),
+            )
+        return story
 
     def save_bible(self, bible: StoryBible) -> StoryBible:
         with self.database.transaction() as connection:
@@ -95,6 +123,17 @@ class StoryRepository:
     ) -> StorySegment:
         """Atomically persist a generated segment and its optional associated records."""
         with self.database.transaction() as connection:
+            branch_row = connection.execute(
+                "SELECT story_id, payload FROM branches WHERE id = ?", (str(segment.branch_id),)
+            ).fetchone()
+            if branch_row is None:
+                raise sqlite3.IntegrityError("segment branch does not exist")
+            if branch_row["story_id"] != str(segment.story_id):
+                raise ValueError("segment branch must belong to the segment story")
+            if event is not None and (
+                event.story_id != segment.story_id or event.branch_id != segment.branch_id
+            ):
+                raise ValueError("event story and branch must match the segment")
             existing = connection.execute(
                 "SELECT payload FROM story_segments WHERE generation_key = ?",
                 (segment.generation_key,),
@@ -127,23 +166,27 @@ class StoryRepository:
                     """,
                     (str(event.id), str(event.story_id), str(event.branch_id), event.request_id, _json(event)),
                 )
-            branch_row = connection.execute(
-                "SELECT payload FROM branches WHERE id = ?", (str(segment.branch_id),)
-            ).fetchone()
-            if branch_row is None:
-                raise RuntimeError("segment branch disappeared during transaction")
             branch = Branch.model_validate_json(branch_row["payload"]).model_copy(
                 update={"head_segment_id": segment.id}
             )
-            connection.execute(
-                "UPDATE branches SET head_segment_id = ?, payload = ? WHERE id = ?",
-                (str(segment.id), _json(branch), str(segment.branch_id)),
+            updated = connection.execute(
+                """
+                UPDATE branches SET head_segment_id = ?, payload = ?
+                WHERE id = ? AND story_id = ?
+                """,
+                (str(segment.id), _json(branch), str(segment.branch_id), str(segment.story_id)),
             )
+            if updated.rowcount != 1:
+                raise RuntimeError("segment branch disappeared during transaction")
         return segment
 
     def _insert_choice_point(
         self, connection: sqlite3.Connection, segment: StorySegment, choice_point: ChoicePoint
     ) -> None:
+        if choice_point.selected_option_id is not None and choice_point.selected_option_id not in {
+            option.id for option in choice_point.options
+        }:
+            raise ValueError("selected option must belong to the exact choice point")
         bound_options = [
             option.model_copy(update={"choice_point_id": choice_point.id})
             for option in choice_point.options
@@ -152,9 +195,13 @@ class StoryRepository:
             update={"segment_id": segment.id, "options": bound_options}
         )
         connection.execute(
-            "INSERT INTO choice_points (id, segment_id, selected_option_id, payload) VALUES (?, ?, ?, ?)",
+            """
+            INSERT INTO choice_points (id, story_id, segment_id, selected_option_id, payload)
+            VALUES (?, ?, ?, ?, ?)
+            """,
             (
                 str(bound_choice.id),
+                str(segment.story_id),
                 str(segment.id),
                 _optional_id(bound_choice.selected_option_id),
                 _json(bound_choice),
@@ -163,10 +210,16 @@ class StoryRepository:
         for option in bound_options:
             connection.execute(
                 """
-                INSERT INTO choice_options (id, choice_point_id, position, payload)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO choice_options (id, story_id, choice_point_id, position, payload)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (str(option.id), str(bound_choice.id), option.position, _json(option)),
+                (
+                    str(option.id),
+                    str(segment.story_id),
+                    str(bound_choice.id),
+                    option.position,
+                    _json(option),
+                ),
             )
 
     def get_segment(self, segment_id: UUID) -> StorySegment | None:
@@ -186,7 +239,11 @@ class StoryRepository:
                 return []
             path: list[StorySegment] = []
             segment_id = branch["head_segment_id"]
+            visited: set[str] = set()
             while segment_id is not None:
+                if segment_id in visited:
+                    raise ValueError("cycle detected in branch segment path")
+                visited.add(segment_id)
                 row = connection.execute(
                     "SELECT parent_segment_id, payload FROM story_segments WHERE id = ?", (segment_id,)
                 ).fetchone()

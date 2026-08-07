@@ -57,6 +57,53 @@ class TestStoryConfig:
 
         assert config.forbidden_elements == "f" * 484
 
+    def test_story_config_represents_important_supporting_characters(self):
+        """The configuration retains the optional supporting-character description."""
+        config = StoryConfig(
+            genre="fantasy",
+            structure="three_act",
+            world_background="A fantasy kingdom",
+            protagonist_desc="A brave hero",
+            important_supporting_characters="An archivist who remembers every broken oath.",
+            style="epic",
+            choice_frequency="中",
+        )
+
+        assert config.important_supporting_characters == (
+            "An archivist who remembers every broken oath."
+        )
+
+    def test_important_supporting_characters_has_an_individual_1000_character_limit(self):
+        """The supporting-character description cannot exceed its own field budget."""
+        with pytest.raises(ValidationError):
+            StoryConfig(
+                genre="fantasy",
+                structure="three_act",
+                world_background="A fantasy kingdom",
+                protagonist_desc="A brave hero",
+                important_supporting_characters="c" * 1001,
+                style="epic",
+                choice_frequency="中",
+            )
+
+    def test_story_config_cumulative_boundary_includes_supporting_characters(self):
+        """Supporting-character text consumes the documented cumulative text budget."""
+        values = {
+            "genre": "fantasy",
+            "structure": "three_act",
+            "world_background": "w" * 2000,
+            "protagonist_desc": "p" * 2000,
+            "important_supporting_characters": "c" * 1000,
+            "style": "s" * 500,
+            "required_elements": "r" * 484,
+            "choice_frequency": "中",
+        }
+
+        config = StoryConfig(**values)
+        assert config.important_supporting_characters == "c" * 1000
+        with pytest.raises(ValidationError, match="6000"):
+            StoryConfig(**values, ending_tendency="e")
+
     def test_choice_frequency_enum(self):
         """choice_frequency should only accept: 少, 中, 多."""
         valid_frequencies = ["少", "中", "多"]
@@ -80,6 +127,28 @@ class TestStoryConfig:
                 protagonist_desc="Hero",
                 style="epic",
                 choice_frequency="invalid",
+            )
+
+
+class TestStory:
+    """Test aggregate-level story validation."""
+
+    def test_story_rejects_choice_frequency_that_differs_from_canonical_config(self):
+        """The compatibility field cannot diverge from the canonical configuration value."""
+        config = StoryConfig(
+            genre="fantasy",
+            structure="three_act",
+            world_background="A fantasy kingdom",
+            protagonist_desc="A brave hero",
+            style="epic",
+            choice_frequency="中",
+        )
+
+        with pytest.raises(ValidationError, match="config.choice_frequency"):
+            domain.Story(
+                session_id="session-1",
+                choice_frequency="少",
+                config=config,
             )
 
 
@@ -184,6 +253,25 @@ class TestSpecRelationships:
         assert choice_point.segment_id is None
         assert option.id is not None
         assert option.choice_point_id is None
+
+
+class TestStorySegment:
+    """Test segment lineage validation."""
+
+    def test_story_segment_cannot_name_itself_as_parent(self):
+        """A segment's immediate parent cannot be its own identifier."""
+        segment_id = uuid4()
+
+        with pytest.raises(ValidationError, match="own parent"):
+            domain.StorySegment(
+                id=segment_id,
+                story_id=uuid4(),
+                branch_id=uuid4(),
+                parent_segment_id=segment_id,
+                sequence=1,
+                content="A path folds back onto itself.",
+                generation_key="self-parent",
+            )
 
 
 class TestChoicePoint:

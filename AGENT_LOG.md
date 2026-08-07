@@ -15,7 +15,7 @@
 
 ## 冷启动验证 (CS-01)
 
-**时间：** 2026-08-07 08:35～09:50 UTC  
+**日期：** 2026-08-07（精确起止时刻与总耗时未被可靠保留）
 **Agent 类型：** general-purpose  
 **任务：** 从 T02 或 T04 中选择 1～2 个任务推进，验证 SPEC / PLAN 清晰度  
 **Worktree：** `.claude/worktrees/coldstart-validation`  
@@ -35,15 +35,12 @@
 
 1. **选定任务：** T02（领域模型与状态机）
 2. **执行方式：** 严格 TDD
-   - 先写 29 个失败测试（13 个状态机 + 16 个模型验证）
-   - 确认测试失败（import/module 缺失）
-   - 实现最少代码：5 个枚举类 + 11 个 Pydantic 模型 + 状态转换表
-   - 所有 29 个测试通过（耗时 0.04s）
+   - 编写 29 个测试（13 个状态机 + 16 个模型验证）
+   - 首次 RED 在测试收集阶段因 import/module 缺失中止，个别测试尚未运行；不能表述为 28 或 29 个测试分别失败
+   - 实现最少代码：5 个枚举类 + 12 个 Pydantic 模型 + 状态转换表
+   - 所有 29 个测试通过；精确测试耗时未被可靠保留
 
-3. **停留需求：** 零次暂停，零个问题提出
-   - 没有遇到规约歧义
-   - 没有找不到的说明
-   - 自主完成 100%
+3. **停留需求证据：** 最终报告未列出阻塞性规约歧义；完整对话与暂停轨迹未被可靠保留，不能据此断言暂停或提问次数
 
 **产出清单：**
 
@@ -51,8 +48,10 @@
 ```
 src/storyflow/domain/
 ├── __init__.py
-├── enums.py (StoryStatus, ChoiceFrequency, ConfigGenre, ConfigStructure, ForeshadowingStatus)
-├── models.py (Story, StoryConfig, StoryBible, CharacterState, StoryArc, StorySegment, ChoicePoint, ChoiceOption, Branch, MemorySnapshot)
+├── enums.py (StoryStatus, ChoiceFrequency, Genre, StoryStructure, ChoiceType)
+├── models.py (StoryConfig, CustomAction, ChoiceOption, ChoicePoint, StoryBible,
+│              CharacterState, Story, StoryArc, StorySegment, Branch,
+│              MemorySnapshot, GenerationEvent)
 └── state_machine.py (转换表、非法转换拒绝)
 
 tests/unit/
@@ -60,15 +59,11 @@ tests/unit/
 └── test_domain_models.py (16 个模型验证测试)
 ```
 
-✅ 红色测试输出：
-```
-FAILED src/storyflow/domain/__init__.py - ModuleNotFoundError: No module named 'storyflow.domain.enums'
-[28 more similar failures]
-```
+✅ RED 证据说明：首次运行在测试收集阶段因 `ModuleNotFoundError` 中止，个别测试尚未运行；原始完整输出未被可靠保留，因此不补写相似失败数或其他缺失输出。
 
 ✅ 绿色测试输出：
 ```
-================================= 29 passed in 0.04s =================================
+================================= 29 passed =================================
 
 Category: State Transitions (13/13)
   - test_draft_to_planning_rejected
@@ -104,14 +99,13 @@ Category: Domain Validation (16/16)
 **教训：**
 
 1. **SPEC 清晰度的实证价值**
-   - Agent 零停留完成 T02，证明了规约写得充分
-   - 没有隐性假设或模棱两可的地方
+   - 最终报告未列出阻塞性歧义，支持 T02 规约可执行的结论
+   - 完整对话与暂停轨迹未保留，不能据此证明不存在任何隐性假设
    - TDD 强制能够立即暴露规约问题（这里暴露 0 个）
 
 2. **Task 颗粒度合理**
-   - T02 预算 60～75 分钟，实际耗时 35 分钟
-   - 说明任务分解足够细，Agent 能快速推进
-   - 时间余量可用于 T03（SQLite + 仓储）
+   - T02 预算为 60～75 分钟；实际总耗时未被可靠保留
+   - 已保留完成产物与测试结果，但不以无法核验的时长评价任务颗粒度
 
 3. **陌生 Agent 的评审价值**
    - 用 general-purpose（非 Claude Code）避免了共享隐性上下文
@@ -206,9 +200,22 @@ Category: Domain Validation (16/16)
 ## PR-01 对账指标（2026-08-07）
 
 - CS-01、T01、T02、T03：已完成；T04 及后续任务仍未开始。
-- 当前完整测试：52 passed，0 warning；T01～T03 均保存了 RED/GREEN 证据。
-- T01～T03 没有未解决的 Critical 或 Important 评审发现。
-- PR-01 整分支最终评审：**待完成**，本日志不将其标记为已完成。
+- 当前完整测试：67 passed，0 warning；T01～T03 与最终修复波次均保存了 RED/GREEN 证据。
+- PR-01 最终评审提出的 Critical/Important/指定 Minor 已在单次整分支修复波次中处理；最终复审批准仍待控制器确认。
+- PR-01 整分支最终复审：**待完成**，本日志不将其标记为已批准或已完成。
+
+#### PR-01 最终评审修复波次
+
+**日期：** 2026-08-07
+**Agent 类型：** 单一 final-fix subagent
+**范围：** 同 Story/路径持久化完整性、父节点环检测、StoryConfig 完整性与选择频率一致性、冷启动证据准确性、测试读连接关闭。
+
+**TDD 证据：** 持久化初始 RED 为 7 failed / 10 passed，修复后 17 passed；同 Story 兄弟路径补充 RED 为 1 failed，修复后相关 3 passed。环检测的最终有效 RED 覆盖 Pydantic、自引用 SQL 与多节点环，修复后 3 passed。StoryConfig/Story 频率 RED 为 4 failed，修复后 4 passed。
+
+**最终门禁：** 目标领域/仓储测试 51 passed；完整测试 67 passed；`make lint`、`make typecheck`、`git diff --check` 均通过且无 warning。
+
+**证据文件：** `.superpowers/sdd/PLAN/final-fix-report.md`
+**状态：** 修复实现与本地门禁完成；PR-01 最终复审批准待控制器处理。
 
 ---
 

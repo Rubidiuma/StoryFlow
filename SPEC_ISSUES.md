@@ -11,13 +11,14 @@ Implemented T02 (Domain Model & State Machine) following strict TDD. All 29 test
 ## Test Results
 
 ### Red Phase
-- Wrote 29 failing tests covering:
+- Wrote 29 tests covering:
   - State machine transitions (13 tests)
   - Domain model validation (16 tests)
+- The first RED stopped during collection on an import/module error before individual tests ran; it must not be described as 28 or 29 separate failed tests.
 
 ### Green Phase
 ```
-============================= 29 passed in 0.04s ==============================
+============================= 29 passed ==============================
 ```
 
 All tests pass without requiring SPEC modifications.
@@ -27,7 +28,7 @@ All tests pass without requiring SPEC modifications.
 **Domain Layer** (`src/storyflow/domain/`):
 - `enums.py` - StoryStatus, ChoiceFrequency, Genre, StoryStructure, ChoiceType
 - `state_machine.py` - StoryStateMachine with valid transition table
-- `models.py` - Pydantic models for Story, Bible, Segment, Choice, Branch, Memory, etc.
+- `models.py` - StoryConfig, CustomAction, ChoiceOption, ChoicePoint, StoryBible, CharacterState, Story, StoryArc, StorySegment, Branch, MemorySnapshot, GenerationEvent
 - `__init__.py` - Module exports
 
 **Tests** (`tests/unit/`):
@@ -94,7 +95,7 @@ All tests pass without requiring SPEC modifications.
 | §5.3 Choice Points | Exactly 3 unique options, effects non-empty | test_domain_models.py (4 tests) | ✓ |
 | §5.4 Custom Actions | 1-300 character validation | test_domain_models.py (5 tests) | ✓ |
 | §5.1 Story Config | Field validation, 6000 char limit | test_domain_models.py (3 tests) | ✓ |
-| §8 Data Models | All entities with required fields | models.py (11 model classes) | ✓ |
+| §8 Data Models | All entities with required fields | models.py (12 model classes) | ✓ |
 
 ## Recommendations
 
@@ -102,12 +103,10 @@ All tests pass without requiring SPEC modifications.
 2. **Documentation**: PLAN.md T11 should clarify how CustomAction effects are parsed (implementation detail, but worth documenting)
 3. **No changes needed to SPEC.md** - specification is clear and complete for T02
 
-## Time Spent
+## Time Evidence
 
-- Test design & writing: 15 minutes
-- Implementation: 10 minutes
-- Debugging (Pydantic config): 5 minutes
-- **Total: ~30 minutes** (within 60-75 min estimate)
+- **Date**: 2026-08-07
+- Exact start/end times, phase durations, and total duration were not reliably preserved.
 
 ## Conclusion
 

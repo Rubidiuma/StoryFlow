@@ -1,5 +1,7 @@
 """Integration tests for the SQLite persistence repositories."""
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -32,6 +34,7 @@ def make_story() -> Story:
             structure="three_act",
             world_background="A kingdom beneath floating islands.",
             protagonist_desc="A cartographer seeking her missing mentor.",
+            important_supporting_characters=None,
             style="lyrical",
             choice_frequency=ChoiceFrequency.MEDIUM,
             required_elements=None,
@@ -141,7 +144,7 @@ def test_duplicate_generation_key_returns_original_bundle_without_extra_rows(tmp
 
     assert repository.commit_segment_bundle(first, make_choice(), make_event(story, branch, "req-1")) == first
     assert repository.commit_segment_bundle(second, make_choice(), make_event(story, branch, "req-2")) == first
-    with database.connect() as connection:
+    with database.read() as connection:
         counts = {
             table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             for table in ("story_segments", "choice_points", "choice_options", "generation_events")
@@ -185,7 +188,7 @@ def test_event_failure_rolls_back_new_segment_and_choice_rows(tmp_path: Path) ->
     assert repository.get_branch(branch.id) == branch.model_copy(
         update={"head_segment_id": existing.id}
     )
-    with database.connect() as connection:
+    with database.read() as connection:
         assert connection.execute("SELECT COUNT(*) FROM story_segments").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM choice_points").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM choice_options").fetchone()[0] == 0
@@ -219,6 +222,64 @@ def test_branch_path_uses_head_and_parent_links_to_keep_only_its_ancestry(tmp_pa
     assert repository.list_branch_path(uuid4()) == []
 
 
+def test_schema_rejects_a_segment_that_names_itself_as_parent(tmp_path: Path) -> None:
+    """The relational CHECK rejects self-parent data even if model validation is bypassed."""
+    _, repository, story, branch = make_repository(tmp_path)
+    segment = make_segment(story, branch, "schema-self-parent")
+    invalid = segment.model_copy(update={"parent_segment_id": segment.id})
+
+    with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint"):
+        repository.commit_segment_bundle(invalid)
+
+
+def test_branch_path_detects_a_corrupted_multi_segment_parent_cycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Traversal raises on a two-node cycle instead of repeatedly querying its members."""
+    database, repository, story, branch = make_repository(tmp_path)
+    first = make_segment(story, branch, "cycle-first")
+    repository.commit_segment_bundle(first)
+    second = make_segment(
+        story,
+        branch,
+        "cycle-second",
+        sequence=2,
+        parent_segment_id=first.id,
+    )
+    repository.commit_segment_bundle(second)
+    with database.transaction() as connection:
+        connection.execute(
+            "UPDATE story_segments SET parent_segment_id = ? WHERE id = ?",
+            (str(second.id), str(first.id)),
+        )
+
+    real_read = database.read
+
+    class CappedConnection:
+        def __init__(self, connection: sqlite3.Connection) -> None:
+            self.connection = connection
+            self.segment_queries = 0
+
+        def execute(
+            self, sql: str, parameters: tuple[str, ...] = ()
+        ) -> sqlite3.Cursor:
+            if "SELECT parent_segment_id" in " ".join(sql.split()):
+                self.segment_queries += 1
+                if self.segment_queries > 3:
+                    raise AssertionError("branch path repeated cycle queries")
+            return self.connection.execute(sql, parameters)
+
+    @contextmanager
+    def capped_read() -> Iterator[CappedConnection]:
+        with real_read() as connection:
+            yield CappedConnection(connection)
+
+    monkeypatch.setattr(database, "read", capped_read)
+
+    with pytest.raises(ValueError, match="cycle"):
+        repository.list_branch_path(branch.id)
+
+
 def test_memory_snapshots_round_trip_and_latest_is_per_branch(tmp_path: Path) -> None:
     """The newest snapshot for a branch can be restored without affecting empty branches."""
     _, repository, story, branch = make_repository(tmp_path)
@@ -243,17 +304,220 @@ def test_memory_snapshots_round_trip_and_latest_is_per_branch(tmp_path: Path) ->
     assert repository.get_latest_memory_snapshot(branch.id) == second
 
 
-def test_story_current_branch_and_choice_selection_use_relational_foreign_keys(
+def test_set_current_branch_updates_relational_and_json_values_for_the_same_story(
     tmp_path: Path,
 ) -> None:
-    """Nullable JSON relation fields are mirrored by enforced relational foreign keys."""
+    """The two-step story flow cannot leave the relational and JSON branch values apart."""
     database, repository, story, branch = make_repository(tmp_path)
-    story_with_current_branch = make_story().model_copy(update={"current_branch_id": branch.id})
 
-    assert repository.create_story(story_with_current_branch) == story_with_current_branch
-    assert repository.get_story(story_with_current_branch.id) == story_with_current_branch
+    updated = repository.set_current_branch(story.id, branch.id)
+
+    assert updated == story.model_copy(update={"current_branch_id": branch.id})
+    assert repository.get_story(story.id) == updated
+    with database.read() as connection:
+        row = connection.execute(
+            "SELECT current_branch_id, payload FROM stories WHERE id = ?", (str(story.id),)
+        ).fetchone()
+    assert row["current_branch_id"] == str(branch.id)
+    assert Story.model_validate_json(row["payload"]) == updated
+
+
+def test_story_current_branch_must_belong_to_that_story(tmp_path: Path) -> None:
+    """A story cannot adopt another story's branch through either creation or update."""
+    _, repository, story, branch = make_repository(tmp_path)
+    other_story = repository.create_story(make_story())
+    other_branch = repository.create_branch(Branch(story_id=other_story.id, name="Other"))
+
+    with pytest.raises(ValueError, match="same story"):
+        repository.set_current_branch(story.id, other_branch.id)
+    assert repository.get_story(story.id) == story
+
+    with pytest.raises((sqlite3.IntegrityError, ValueError)):
+        repository.create_story(make_story().model_copy(update={"current_branch_id": branch.id}))
+
+
+def test_cross_story_branch_relations_are_rejected(tmp_path: Path) -> None:
+    """Branch lineage, fork, and head references cannot cross the story aggregate."""
+    _, repository, story, _ = make_repository(tmp_path)
+    other_story = repository.create_story(make_story())
+    other_branch = repository.create_branch(Branch(story_id=other_story.id, name="Other"))
+    other_segment = make_segment(other_story, other_branch, "other-branch-segment")
+    other_choice = make_choice()
+    repository.commit_segment_bundle(other_segment, other_choice)
+
+    invalid_branches = (
+        Branch(story_id=story.id, parent_branch_id=other_branch.id),
+        Branch(story_id=story.id, fork_segment_id=other_segment.id),
+        Branch(story_id=story.id, head_segment_id=other_segment.id),
+        Branch(story_id=story.id, fork_choice_id=other_choice.options[0].id),
+    )
+    for invalid_branch in invalid_branches:
+        with pytest.raises(sqlite3.IntegrityError):
+            repository.create_branch(invalid_branch)
+
+
+def test_branch_fork_and_head_references_must_stay_on_the_parent_path(tmp_path: Path) -> None:
+    """A same-story sibling segment or choice is outside another branch's ancestry."""
+    database, repository, story, main_branch = make_repository(tmp_path)
+    root_segment = make_segment(story, main_branch, "path-root")
+    repository.commit_segment_bundle(root_segment)
+    sibling = repository.create_branch(
+        Branch(
+            story_id=story.id,
+            parent_branch_id=main_branch.id,
+            fork_segment_id=root_segment.id,
+            head_segment_id=root_segment.id,
+            name="Sibling",
+        )
+    )
+    sibling_segment = make_segment(
+        story,
+        sibling,
+        "sibling-segment",
+        sequence=2,
+        parent_segment_id=root_segment.id,
+    )
+    sibling_choice = make_choice()
+    repository.commit_segment_bundle(sibling_segment, sibling_choice)
+
+    invalid_branches = (
+        Branch(
+            story_id=story.id,
+            parent_branch_id=main_branch.id,
+            fork_segment_id=sibling_segment.id,
+        ),
+        Branch(
+            story_id=story.id,
+            parent_branch_id=main_branch.id,
+            head_segment_id=sibling_segment.id,
+        ),
+        Branch(
+            story_id=story.id,
+            parent_branch_id=main_branch.id,
+            fork_segment_id=sibling_segment.id,
+            fork_choice_id=sibling_choice.options[0].id,
+        ),
+    )
+    for invalid_branch in invalid_branches:
+        with pytest.raises(sqlite3.IntegrityError, match="branch path"):
+            repository.create_branch(invalid_branch)
+
+    with pytest.raises(
+        sqlite3.IntegrityError, match="branch path"
+    ), database.transaction() as connection:
+        connection.execute(
+            "UPDATE branches SET head_segment_id = ? WHERE id = ?",
+            (str(sibling_segment.id), str(main_branch.id)),
+        )
+
+
+def test_rejected_cross_story_bundle_preserves_branch_head_and_all_row_counts(
+    tmp_path: Path,
+) -> None:
+    """Bundle ownership validation happens before writes and cannot move another aggregate's head."""
+    database, repository, story, branch = make_repository(tmp_path)
+    existing = make_segment(story, branch, "existing-head")
+    repository.commit_segment_bundle(existing)
+    other_story = repository.create_story(make_story())
+    other_branch = repository.create_branch(Branch(story_id=other_story.id, name="Other"))
+    rejected = make_segment(
+        story,
+        branch,
+        "rejected-bundle",
+        sequence=2,
+        parent_segment_id=existing.id,
+    )
+    mismatched_event = make_event(other_story, other_branch, "cross-story-event")
+    tables = ("story_segments", "choice_points", "choice_options", "generation_events")
+    with database.read() as connection:
+        counts_before = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in tables
+        }
+
+    with pytest.raises(ValueError, match="event.*segment"):
+        repository.commit_segment_bundle(rejected, make_choice(), mismatched_event)
+
+    assert repository.get_branch(branch.id) == branch.model_copy(
+        update={"head_segment_id": existing.id}
+    )
+    with database.read() as connection:
+        counts_after = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in tables
+        }
+    assert counts_after == counts_before
+
+
+def test_segment_branch_and_parent_must_belong_to_the_segment_story(tmp_path: Path) -> None:
+    """A segment cannot borrow a branch or parent segment from another story."""
+    _, repository, story, branch = make_repository(tmp_path)
+    other_story = repository.create_story(make_story())
+    other_branch = repository.create_branch(Branch(story_id=other_story.id, name="Other"))
+    other_segment = make_segment(other_story, other_branch, "other-parent")
+    repository.commit_segment_bundle(other_segment)
+
+    with pytest.raises(ValueError, match="branch.*story"):
+        repository.commit_segment_bundle(
+            make_segment(story, other_branch, "cross-story-branch")
+        )
     with pytest.raises(sqlite3.IntegrityError):
-        repository.create_story(make_story().model_copy(update={"current_branch_id": uuid4()}))
+        repository.commit_segment_bundle(
+            make_segment(story, branch, "cross-story-parent", parent_segment_id=other_segment.id)
+        )
+
+
+def test_memory_snapshot_references_must_belong_to_its_story(tmp_path: Path) -> None:
+    """A memory snapshot cannot combine another story's branch or segment with its owner."""
+    _, repository, story, branch = make_repository(tmp_path)
+    other_story = repository.create_story(make_story())
+    other_branch = repository.create_branch(Branch(story_id=other_story.id, name="Other"))
+    other_segment = make_segment(other_story, other_branch, "other-snapshot-segment")
+    repository.commit_segment_bundle(other_segment)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        repository.save_memory_snapshot(
+            MemorySnapshot(story_id=story.id, branch_id=other_branch.id, context_version=1)
+        )
+    with pytest.raises(sqlite3.IntegrityError):
+        repository.save_memory_snapshot(
+            MemorySnapshot(
+                story_id=story.id,
+                branch_id=branch.id,
+                segment_id=other_segment.id,
+                context_version=1,
+            )
+        )
+
+
+def test_choice_selection_must_name_an_option_from_that_exact_choice_point(
+    tmp_path: Path,
+) -> None:
+    """A selected option from another persisted choice point cannot satisfy the relation."""
+    _, repository, story, branch = make_repository(tmp_path)
+    first_choice = make_choice()
+    first_segment = make_segment(story, branch, "first-choice")
+    repository.commit_segment_bundle(first_segment, first_choice)
+
+    selected_choice = make_choice().model_copy(
+        update={"selected_option_id": first_choice.options[0].id}
+    )
+    with pytest.raises(ValueError, match="exact choice point"):
+        repository.commit_segment_bundle(
+            make_segment(
+                story,
+                branch,
+                "cross-choice-selection",
+                sequence=2,
+                parent_segment_id=first_segment.id,
+            ),
+            selected_choice,
+        )
+
+
+def test_choice_selection_is_mirrored_in_relational_and_json_values(tmp_path: Path) -> None:
+    """A choice's own selected option is retained in both storage representations."""
+    database, repository, story, branch = make_repository(tmp_path)
 
     selected_choice = make_choice()
     selected_choice = selected_choice.model_copy(
@@ -261,18 +525,12 @@ def test_story_current_branch_and_choice_selection_use_relational_foreign_keys(
     )
     selected_segment = make_segment(story, branch, "selected-choice")
     repository.commit_segment_bundle(selected_segment, selected_choice)
-    with database.connect() as connection:
+    with database.read() as connection:
         row = connection.execute(
             "SELECT selected_option_id, payload FROM choice_points WHERE id = ?", (str(selected_choice.id),)
         ).fetchone()
     assert row["selected_option_id"] == str(selected_choice.options[0].id)
     assert ChoicePoint.model_validate_json(row["payload"]).selected_option_id == selected_choice.options[0].id
-
-    invalid_choice = make_choice().model_copy(update={"selected_option_id": uuid4()})
-    with pytest.raises(sqlite3.IntegrityError):
-        repository.commit_segment_bundle(
-            make_segment(story, branch, "invalid-selected-choice", sequence=2), invalid_choice
-        )
 
 
 def test_database_reads_explicitly_close_tracked_connections_on_success_and_error(

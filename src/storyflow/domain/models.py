@@ -31,6 +31,7 @@ class StoryConfig(BaseModel):
     protagonist_desc: str = Field(
         ..., description="Protagonist description", min_length=1, max_length=2000
     )
+    important_supporting_characters: str | None = Field(None, max_length=1000)
     style: str = Field(..., description="Writing style", min_length=1, max_length=500)
     choice_frequency: ChoiceFrequency = Field(
         ..., description="少 (few), 中 (medium), or 多 (many) choices per SPEC §5.2"
@@ -47,6 +48,7 @@ class StoryConfig(BaseModel):
             self.structure,
             self.world_background,
             self.protagonist_desc,
+            self.important_supporting_characters,
             self.style,
             self.required_elements,
             self.forbidden_elements,
@@ -212,6 +214,13 @@ class Story(BaseModel):
     created_at: datetime = Field(default_factory=_naive_utc_now)
     updated_at: datetime = Field(default_factory=_naive_utc_now)
 
+    @model_validator(mode="after")
+    def choice_frequency_must_match_config(self) -> Self:
+        """Keep the compatibility field aligned with the canonical config value."""
+        if self.choice_frequency != self.config.choice_frequency:
+            raise ValueError("choice_frequency must equal config.choice_frequency")
+        return self
+
 
 class StoryArc(BaseModel):
     """Story arc per SPEC §8.
@@ -249,6 +258,13 @@ class StorySegment(BaseModel):
     generation_key: str = Field(..., description="Idempotent key for generation")
     status: str = Field("pending", description="pending, completed, failed")
     created_at: datetime = Field(default_factory=_naive_utc_now)
+
+    @model_validator(mode="after")
+    def parent_must_not_be_self(self) -> Self:
+        """Reject an immediate lineage cycle at the domain boundary."""
+        if self.parent_segment_id == self.id:
+            raise ValueError("a story segment cannot be its own parent")
+        return self
 
     @field_validator("content")
     @classmethod
