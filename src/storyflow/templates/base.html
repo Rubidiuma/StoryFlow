@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>{% block title %}StoryFlow{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+    {% block head %}{% endblock %}
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="StoryFlow 首页">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>StoryFlow</span>
+      </a>
+      <nav aria-label="主要导航">
+        <a href="/">我的书架</a>
+        <a class="button button-small" href="/create">创建小说</a>
+      </nav>
+    </header>
+    <main id="main-content" class="page-shell">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="site-footer">
+      <span>故事由你选择，世界持续生长。</span>
+    </footer>
+    <script src="{{ url_for('static', path='/js/api.js') }}" defer></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

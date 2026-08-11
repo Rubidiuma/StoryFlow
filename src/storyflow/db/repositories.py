@@ -102,6 +102,13 @@ class StoryRepository:
             ).fetchone()
         return Story.model_validate_json(row["payload"]) if row else None
 
+    def list_stories(self) -> list[Story]:
+        """Return the bookshelf ordered from most recently updated to oldest."""
+        with self.database.read() as connection:
+            rows = connection.execute("SELECT payload FROM stories").fetchall()
+        stories = [Story.model_validate_json(row["payload"]) for row in rows]
+        return sorted(stories, key=lambda story: story.updated_at, reverse=True)
+
     def recover_interrupted_generations(self) -> list[Story]:
         """Atomically mark persisted in-flight stories as interrupted once."""
         active_statuses = {

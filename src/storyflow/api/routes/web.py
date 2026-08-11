@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+"""Server-rendered entry pages for the StoryFlow browser experience."""
+
+from pathlib import Path
+from uuid import UUID
+
+from fastapi import APIRouter, Request, status
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+
+from storyflow.db.repositories import StoryRepository
+from storyflow.domain.enums import StoryStatus
+
+PACKAGE_DIRECTORY = Path(__file__).resolve().parents[2]
+WEB_STATIC_DIRECTORY = PACKAGE_DIRECTORY / "static"
+templates = Jinja2Templates(directory=PACKAGE_DIRECTORY / "templates")
+
+STATUS_LABELS = {
+    StoryStatus.DRAFT: "待确认设定",
+    StoryStatus.IDLE: "可继续",
+    StoryStatus.PLANNING: "规划中",
+    StoryStatus.STREAMING: "生成中",
+    StoryStatus.COMMITTING: "保存中",
+    StoryStatus.WAITING_CHOICE: "等待选择",
+    StoryStatus.PAUSED: "已暂停",
+    StoryStatus.ERROR: "需要重试",
+}
+
+
+def create_web_router(repository: StoryRepository | None) -> APIRouter:
+    """Build HTML routes while keeping JSON API routes unchanged."""
+    router = APIRouter(tags=["web"])
+
+    @router.get("/", response_class=HTMLResponse, include_in_schema=False)
+    def bookshelf(request: Request) -> HTMLResponse:
+        stories = repository.list_stories() if repository is not None else []
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={"stories": stories, "status_labels": STATUS_LABELS},
+        )
+
+    @router.get("/create", response_class=HTMLResponse, include_in_schema=False)
+    def create_page(request: Request, copy_from: UUID | None = None) -> HTMLResponse:
+        source_story = repository.get_story(copy_from) if repository and copy_from else None
+        return templates.TemplateResponse(
+            request=request,
+            name="create.html",
+            context={"source_story": source_story},
+        )
+
+    @router.get(
+        "/stories/{story_id}", response_class=HTMLResponse, include_in_schema=False
+    )
+    def story_page(request: Request, story_id: UUID) -> HTMLResponse:
+        if repository is None:
+            story = None
+        else:
+            story = repository.get_story(story_id)
+        if story is None:
+            return templates.TemplateResponse(
+                request=request,
+                name="story.html",
+                context={"story": None, "bible": None, "status_labels": STATUS_LABELS},
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        assert repository is not None
+        bible = repository.get_bible(story_id) if story.status is StoryStatus.DRAFT else None
+        return templates.TemplateResponse(
+            request=request,
+            name="story.html",
+            context={"story": story, "bible": bible, "status_labels": STATUS_LABELS},
+        )
+
+    return router

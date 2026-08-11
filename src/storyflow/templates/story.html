@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}{% if story %}{{ story.title }}{% else %}故事不存在{% endif %} · StoryFlow{% endblock %}
+
+{% block content %}
+  {% if not story %}
+    <section class="empty-state compact">
+      <span class="empty-glyph" aria-hidden="true">?</span>
+      <h1>故事不存在</h1>
+      <p>它可能已被移走，或者这个链接并不完整。</p>
+      <a class="button" href="/">返回书架</a>
+    </section>
+  {% elif story.status.value == "DRAFT" %}
+    <section class="story-page" data-view="bible-confirmation" data-story-id="{{ story.id }}">
+      <header class="story-heading">
+        <div>
+          <p class="eyebrow">确认故事圣经</p>
+          <h1>{{ story.title }}</h1>
+          <p>正文会在你确认核心规则后才开始生成。</p>
+        </div>
+        <span class="status status-draft">{{ status_labels[story.status] }}</span>
+      </header>
+
+      {% if bible %}
+        <div class="bible-grid">
+          <article class="bible-card bible-card-wide">
+            <h2>世界规则</h2>
+            <p>{{ bible.world_rules }}</p>
+          </article>
+          <article class="bible-card">
+            <h2>叙事基调</h2>
+            <p>{{ bible.tone_rules }}</p>
+          </article>
+          <article class="bible-card">
+            <h2>主角核心</h2>
+            <p>{{ bible.protagonist_core }}</p>
+          </article>
+          <article class="bible-card">
+            <h2>必须保留</h2>
+            <p>{{ bible.required_elements | join('、') or '未指定' }}</p>
+          </article>
+          <article class="bible-card">
+            <h2>明确避开</h2>
+            <p>{{ bible.forbidden_elements | join('、') or '未指定' }}</p>
+          </article>
+        </div>
+        <div class="story-actions">
+          <a class="button button-secondary" href="/create?copy_from={{ story.id }}">修改创作设定</a>
+          <button class="button" type="button" data-confirm-bible>确认故事圣经</button>
+        </div>
+      {% else %}
+        <section class="empty-state compact">
+          <h2>故事圣经尚未生成</h2>
+          <p>可以重试生成，或返回向导调整创作设定。</p>
+          <div class="story-actions">
+            <a class="button button-secondary" href="/create?copy_from={{ story.id }}">修改创作设定</a>
+            <button class="button" type="button" data-generate-bible>生成故事圣经</button>
+          </div>
+        </section>
+      {% endif %}
+      <p class="form-error" role="alert" aria-live="polite" hidden></p>
+    </section>
+  {% else %}
+    <section class="story-page reader-entry" data-view="reader-entry" data-story-id="{{ story.id }}">
+      <header class="story-heading">
+        <div>
+          <p class="eyebrow">继续你的故事</p>
+          <h1>{{ story.title }}</h1>
+          <p>最近更新 {{ story.updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+        </div>
+        <span class="status status-{{ story.status.value | lower }}">{{ story.status.value }}</span>
+      </header>
+      <div class="reader-placeholder">
+        <span aria-hidden="true">↳</span>
+        <div>
+          <h2>故事已经准备好</h2>
+          <p>从当前分支继续阅读；流式正文将在阅读器中接续。</p>
+        </div>
+      </div>
+      <div class="story-actions">
+        <a class="button button-secondary" href="/">返回书架</a>
+        <a class="button" href="#reader">继续阅读</a>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

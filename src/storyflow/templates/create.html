@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}创建小说 · StoryFlow{% endblock %}
+
+{% block content %}
+  <section class="create-layout">
+    <aside class="wizard-intro">
+      <p class="eyebrow">新故事</p>
+      <h1>创建小说</h1>
+      <p>先确定故事的方向，再把细节交给想象力。所有必填项都会在提交前再次校验。</p>
+      <ol class="step-list" aria-label="创建进度">
+        <li class="is-active" data-step-indicator="1"><span>1</span>故事骨架</li>
+        <li data-step-indicator="2"><span>2</span>人物与文风</li>
+        <li data-step-indicator="3"><span>3</span>边界与确认</li>
+      </ol>
+    </aside>
+
+    <form id="create-story-form" class="wizard-card" data-total-maxlength="6000" novalidate>
+      <input type="hidden" name="session_id" required>
+      <div class="form-error" role="alert" aria-live="polite" hidden></div>
+
+      <fieldset class="wizard-step" data-step="1">
+        <legend>先搭好故事骨架</legend>
+        <p class="step-help">这些信息会成为故事圣经的起点。</p>
+        <div class="field-grid">
+          <label class="field field-wide">
+            <span>小说标题 <small>选填</small></span>
+            <input name="title" value="{{ source_story.title if source_story else '' }}" placeholder="例如：云海尽头的灯塔">
+          </label>
+          <label class="field">
+            <span>题材</span>
+            <input name="genre" value="{{ source_story.config.genre if source_story else '' }}" placeholder="奇幻、悬疑、科幻……" required>
+          </label>
+          <label class="field">
+            <span>叙事结构</span>
+            <input name="structure" value="{{ source_story.config.structure if source_story else '' }}" placeholder="三幕式、英雄之旅……" required>
+          </label>
+          <label class="field field-wide">
+            <span>世界背景</span>
+            <textarea name="world_background" maxlength="2000" rows="6" placeholder="这个世界如何运转？有什么独特规则？" required>{{ source_story.config.world_background if source_story else '' }}</textarea>
+            <small>最多 2,000 字</small>
+          </label>
+        </div>
+        <div class="wizard-actions wizard-actions-end">
+          <button class="button" type="button" data-next-step>下一步</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-step" data-step="2" hidden>
+        <legend>让人物带着声音登场</legend>
+        <p class="step-help">清晰的欲望与文风，比堆叠设定更能推动故事。</p>
+        <div class="field-grid">
+          <label class="field field-wide">
+            <span>主角描述</span>
+            <textarea name="protagonist_desc" maxlength="2000" rows="5" placeholder="主角是谁？TA 渴望什么，又害怕什么？" required>{{ source_story.config.protagonist_desc if source_story else '' }}</textarea>
+            <small>最多 2,000 字</small>
+          </label>
+          <label class="field field-wide">
+            <span>重要配角 <small>选填</small></span>
+            <textarea name="important_supporting_characters" maxlength="1000" rows="4" placeholder="写下姓名、关系或冲突">{{ source_story.config.important_supporting_characters or '' if source_story else '' }}</textarea>
+          </label>
+          <label class="field field-wide">
+            <span>文风</span>
+            <textarea name="style" maxlength="500" rows="3" placeholder="例如：克制、明亮，有电影感" required>{{ source_story.config.style if source_story else '' }}</textarea>
+          </label>
+          <label class="field">
+            <span>选择频率</span>
+            {% set frequency = source_story.choice_frequency.value if source_story else '中' %}
+            <select name="choice_frequency" required>
+              <option value="少" {% if frequency == '少' %}selected{% endif %}>少 · 每 4–5 个场景</option>
+              <option value="中" {% if frequency == '中' %}selected{% endif %}>中 · 每 2–3 个场景</option>
+              <option value="多" {% if frequency == '多' %}selected{% endif %}>多 · 每 1–2 个场景</option>
+            </select>
+          </label>
+        </div>
+        <div class="wizard-actions">
+          <button class="button button-secondary" type="button" data-prev-step>上一步</button>
+          <button class="button" type="button" data-next-step>下一步</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="wizard-step" data-step="3" hidden>
+        <legend>写下故事的边界</legend>
+        <p class="step-help">可选项帮助生成更稳定；全部文本总计不超过 6,000 字。</p>
+        <div class="field-grid">
+          <label class="field field-wide">
+            <span>必须出现的元素 <small>选填</small></span>
+            <textarea name="required_elements" maxlength="1000" rows="3" placeholder="人物、地点、道具或事件">{{ source_story.config.required_elements or '' if source_story else '' }}</textarea>
+          </label>
+          <label class="field field-wide">
+            <span>禁止出现的元素 <small>选填</small></span>
+            <textarea name="forbidden_elements" maxlength="1000" rows="3" placeholder="不希望出现的内容">{{ source_story.config.forbidden_elements or '' if source_story else '' }}</textarea>
+          </label>
+          <label class="field field-wide">
+            <span>结局倾向 <small>选填</small></span>
+            <textarea name="ending_tendency" maxlength="1000" rows="3" placeholder="开放、圆满、苦涩，或保持未知">{{ source_story.config.ending_tendency or '' if source_story else '' }}</textarea>
+          </label>
+        </div>
+        <div class="cost-note">
+          <strong>生成提示</strong>
+          <span>提交后将先生成故事圣经；你确认设定之前，不会开始生成正文。</span>
+        </div>
+        <div class="wizard-actions">
+          <button class="button button-secondary" type="button" data-prev-step>上一步</button>
+          <button class="button" type="submit">生成故事圣经</button>
+        </div>
+      </fieldset>
+    </form>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', path='/js/create.js') }}" defer></script>
+{% endblock %}

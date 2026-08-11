@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}我的书架 · StoryFlow{% endblock %}
+
+{% block content %}
+  <section class="hero" aria-labelledby="bookshelf-title">
+    <p class="eyebrow">你的故事宇宙</p>
+    <div class="hero-row">
+      <div>
+        <h1 id="bookshelf-title">我的书架</h1>
+        <p class="lede">回到上次停下的地方，或者让一个新世界从第一句话开始。</p>
+      </div>
+      <a class="button" href="/create">创建一部小说</a>
+    </div>
+  </section>
+
+  {% if stories %}
+    <section class="bookshelf-grid" aria-label="小说列表">
+      {% for story in stories %}
+        <article class="story-card" data-status="{{ story.status.value }}">
+          <div class="story-card-topline">
+            <span class="status status-{{ story.status.value | lower }}">
+              {{ status_labels[story.status] }}
+            </span>
+            <span class="meta">最近更新 {{ story.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
+          </div>
+          <h2>{{ story.title }}</h2>
+          <p>{{ story.config.genre }} · {{ story.config.structure }} · 选择频率 {{ story.choice_frequency.value }}</p>
+          <a class="card-link" href="/stories/{{ story.id }}">
+            {% if story.status.value == "DRAFT" %}查看并确认设定{% else %}继续阅读{% endif %}
+            <span aria-hidden="true">→</span>
+          </a>
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="empty-state">
+      <span class="empty-glyph" aria-hidden="true">✦</span>
+      <h2>书架还是空的</h2>
+      <p>用几分钟写下世界、主角和文风，StoryFlow 会帮你打开故事的第一扇门。</p>
+      <a class="button" href="/create">开始创建</a>
+    </section>
+  {% endif %}
+{% endblock %}
