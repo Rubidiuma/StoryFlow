@@ -8,14 +8,16 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, field_validator
 from starlette.responses import StreamingResponse
 
+from storyflow.api.dependencies import optional_session_id
 from storyflow.api.errors import generation_error_data, generation_http_error
 from storyflow.db.repositories import StoryRepository
 from storyflow.domain.enums import StoryStatus
 from storyflow.llm.base import LLMClient
+from storyflow.security.rate_limit import RateLimiter
 from storyflow.services.generation import GenerationRequest, GenerationResult, GenerationService
 
 EventName = Literal[
@@ -56,6 +58,7 @@ def create_generation_router(
     llm_client: LLMClient | None,
     *,
     emit_heartbeat: bool = False,
+    rate_limiter: RateLimiter | None = None,
 ) -> APIRouter:
     """Build generation routes around explicitly injected runtime dependencies."""
     router = APIRouter(prefix="/api/stories", tags=["generation"])
@@ -69,7 +72,14 @@ def create_generation_router(
     async def generate_story(
         story_id: UUID,
         request: GenerateStoryRequest,
+        http_request: Request,
     ) -> StreamingResponse:
+        session_id = optional_session_id(http_request)
+        # Session and story checks run even when the LLM is unavailable
+        if repository is not None:
+            story = repository.get_story(story_id)
+            if story is None or (session_id is not None and story.session_id != session_id):
+                raise generation_http_error(status.HTTP_404_NOT_FOUND, "story_not_found")
         if repository is None or llm_client is None or generation_service is None:
             raise generation_http_error(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -77,8 +87,11 @@ def create_generation_router(
                 retryable=True,
             )
         story = repository.get_story(story_id)
-        if story is None:
+        if story is None or (session_id is not None and story.session_id != session_id):
             raise generation_http_error(status.HTTP_404_NOT_FOUND, "story_not_found")
+        if rate_limiter is not None and session_id is not None:
+            if not rate_limiter.is_allowed(session_id):
+                raise generation_http_error(status.HTTP_429_TOO_MANY_REQUESTS, "rate_limit_exceeded")
         branch = repository.get_branch(request.branch_id)
         if branch is None:
             raise generation_http_error(status.HTTP_404_NOT_FOUND, "branch_not_found")

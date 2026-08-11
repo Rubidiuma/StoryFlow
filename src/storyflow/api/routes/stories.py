@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 """Story draft and Bible lifecycle routes."""
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
+from storyflow.api.dependencies import optional_session_id
 from storyflow.db.repositories import (
     IllegalStoryStateError,
     IncompleteBibleBundleError,
@@ -36,6 +39,21 @@ def create_story_router(
 ) -> APIRouter:
     """Build story routes around explicitly configured persistence."""
     router = APIRouter(prefix="/stories", tags=["stories"])
+
+    @router.get("/{story_id}", response_model=Story)
+    def get_story(
+        story_id: UUID,
+        request: Request,
+        session_id: str | None = Depends(optional_session_id),
+    ) -> Story:
+        if repository is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                                detail={"code": "STORY_SERVICE_UNAVAILABLE", "retryable": True})
+        story = repository.get_story(story_id)
+        if story is None or (session_id is not None and story.session_id != session_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail={"code": "story_not_found"})
+        return story
 
     @router.post("", response_model=Story, status_code=status.HTTP_201_CREATED)
     def create_story(request: CreateStoryRequest) -> Story:

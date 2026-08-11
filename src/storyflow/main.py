@@ -9,11 +9,13 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from storyflow.api.routes.choices import create_choice_router
+from storyflow.api.routes.export import create_export_router
 from storyflow.api.routes.generation import create_generation_router
 from storyflow.api.routes.stories import create_story_router
 from storyflow.api.routes.web import WEB_STATIC_DIRECTORY, create_web_router
 from storyflow.db.repositories import StoryRepository
 from storyflow.llm.base import LLMClient
+from storyflow.security.rate_limit import RateLimiter
 from storyflow.services.generation import recover_interrupted_generations
 
 
@@ -22,6 +24,7 @@ def create_app(
     llm_client: LLMClient | None = None,
     *,
     emit_generation_heartbeat: bool = False,
+    rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     """Create the StoryFlow application."""
 
@@ -47,11 +50,13 @@ def create_app(
     app.include_router(create_web_router(repository))
     app.include_router(create_story_router(repository, llm_client))
     app.include_router(create_choice_router(repository, llm_client))
+    app.include_router(create_export_router(repository))
     app.include_router(
         create_generation_router(
             repository,
             llm_client,
             emit_heartbeat=emit_generation_heartbeat,
+            rate_limiter=rate_limiter,
         )
     )
     return app
