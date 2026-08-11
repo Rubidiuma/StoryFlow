@@ -1,0 +1,27 @@
+version: "3.9"
+services:
+  storyflow:
+    image: storyflow:local
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - storyflow-data:/data
+    environment:
+      - STORYFLOW_ENVIRONMENT=production
+      # Set your LLM API key via a secret file or environment variable.
+      # NEVER hard-code the key here.
+      # Option A: mount a secret file
+      # - STORYFLOW_LLM_KEY_FILE=/run/secrets/llm_key
+      # Option B: pass via environment (less secure, use only in dev)
+      # - STORYFLOW_LLM_KEY=your-key-here
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  storyflow-data:

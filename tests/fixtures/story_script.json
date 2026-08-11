@@ -1,0 +1,69 @@
+{
+  "_description": "Deterministic fake-LLM script for the full demo journey.",
+  "bible_response": {
+    "world_rules": "浮岛通过古老的风石晶体连接，无法用火焰摧毁。",
+    "tone_rules": "克制、明亮，留有余地。",
+    "protagonist_core": "弥拉绝不抛弃同伴，即使代价高昂。",
+    "required_elements": ["飞艇"],
+    "forbidden_elements": [],
+    "first_arc": {
+      "goal": "找到失踪的导师，揭开消失的云桥之谜。",
+      "conflict": "云海帝国的秘密警察封锁了所有已知路线。",
+      "stage": "rising",
+      "exit_conditions": ["导师下落明朗", "真相浮出水面"]
+    },
+    "characters": [
+      {
+        "name": "弥拉",
+        "role": "protagonist",
+        "location": "风石港",
+        "motivation": "找到失踪的导师",
+        "known_facts": ["导师三天前失踪"],
+        "secrets": [],
+        "relationships": {"洛恩": "信任的向导"},
+        "alive": true
+      }
+    ]
+  },
+  "scene1_plan": {
+    "goal": "离开风石港前收集线索",
+    "conflict": "秘密警察在港口布控",
+    "beats": ["弥拉在档案室发现一张不完整的地图"],
+    "choice_suggestion": null,
+    "scene_complete": true
+  },
+  "scene1_text": "弥拉将那张残缺的地图折进外套内袋，洛恩站在档案室门口用眼神催促她。",
+  "scene2_plan": {
+    "goal": "穿越云桥检查站",
+    "conflict": "检查站哨兵要求出示通行证",
+    "beats": ["哨兵拦住去路", "洛恩递出一张伪造证件", "检查站队长出现"],
+    "choice_suggestion": {
+      "type": "decision",
+      "reason": "检查站队长认出了弥拉，必须当场决定应对方式。",
+      "options": [
+        {
+          "text": "用制图师身份正面交涉",
+          "effects": {"route_change": "negotiate"}
+        },
+        {
+          "text": "趁乱从侧门溜走",
+          "effects": {"route_change": "sneak"}
+        },
+        {
+          "text": "让洛恩制造混乱掩护撤退",
+          "effects": {"route_change": "diversion"}
+        }
+      ]
+    },
+    "scene_complete": true
+  },
+  "scene2_text": "检查站的灯笼在雾中晕开橘色的光晕，队长从侧廊走出来，目光落在弥拉脸上。",
+  "scene3_plan": {
+    "goal": "按照选择逃出检查站",
+    "conflict": "队长仍在追踪",
+    "beats": ["弥拉与洛恩成功脱身", "两人到达云桥边缘"],
+    "choice_suggestion": null,
+    "scene_complete": true
+  },
+  "scene3_text": "弥拉借助导师留下的制图手稿绕过了队长的视线，洛恩在后方悄声跟上。"
+}

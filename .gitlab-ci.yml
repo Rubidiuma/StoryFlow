@@ -1,0 +1,71 @@
+stages:
+  - test
+  - lint
+  - build
+
+variables:
+  UV_CACHE_DIR: ".uv-cache"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+
+.python-cache: &python-cache
+  cache:
+    key: "$CI_COMMIT_REF_SLUG-python"
+    paths:
+      - .uv-cache/
+      - .venv/
+
+unit-test:
+  stage: test
+  image: python:3.12-slim
+  <<: *python-cache
+  before_script:
+    - pip install uv -q
+    - uv sync --extra dev --frozen
+  script:
+    - uv run pytest -q --tb=short
+  artifacts:
+    when: always
+    reports:
+      junit: test-results.xml
+    expire_in: 7 days
+
+secret-scan:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - python scripts/secret_scan.py src/
+    - python scripts/secret_scan.py scripts/
+
+lint:
+  stage: lint
+  image: python:3.12-slim
+  <<: *python-cache
+  before_script:
+    - pip install uv -q
+    - uv sync --extra dev --frozen
+  script:
+    - uv run ruff check src/ tests/
+
+typecheck:
+  stage: lint
+  image: python:3.12-slim
+  <<: *python-cache
+  before_script:
+    - pip install uv -q
+    - uv sync --extra dev --frozen
+  script:
+    - uv run mypy src/ --ignore-missing-imports
+
+docker-build:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - docker build -t storyflow:$CI_COMMIT_SHORT_SHA .
+    - docker run --rm storyflow:$CI_COMMIT_SHORT_SHA python -c "import storyflow; print('import ok')"
+  only:
+    - main
+    - merge_requests
