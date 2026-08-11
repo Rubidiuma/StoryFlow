@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
+
+_log = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, field_validator
@@ -111,11 +114,12 @@ def create_generation_router(
                 status.HTTP_409_CONFLICT,
                 "invalid_generation_state",
             )
+        server_context = _build_story_context(repository, story_id, request.branch_id)
         generation_request = GenerationRequest(
             story_id=story_id,
             branch_id=request.branch_id,
             generation_key=request.generation_key,
-            context=request.context,
+            context=server_context,
             scenes_since_last_choice=_scenes_since_last_choice(repository, request.branch_id),
         )
         branch_reserved = False
@@ -214,6 +218,106 @@ async def _publish_result(
 def _encode_sse(event: _SSEEvent) -> str:
     payload = {"version": 1, "event": event.name, "data": event.data}
     return f"event: {event.name}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
+
+
+def _build_story_context(
+    repository: StoryRepository,
+    story_id: UUID,
+    branch_id: UUID,
+) -> dict[str, Any]:
+    """Build the full layered context for generation from persisted story data."""
+    from storyflow.services.context_builder import (
+        ChoiceMemory,
+        ContextBuilder,
+        ForeshadowingMemory,
+        LayeredMemory,
+        SceneMemory,
+    )
+
+    bible = repository.get_bible(story_id)
+    arcs = repository.list_story_arcs(story_id)
+    segments = repository.list_branch_path(branch_id)
+    memory = repository.get_latest_memory_snapshot(branch_id)
+
+    fixed_memory: dict[str, Any] = {}
+    if bible:
+        fixed_memory = {
+            "world_rules": bible.world_rules,
+            "tone_rules": bible.tone_rules,
+            "protagonist_core": bible.protagonist_core,
+            "required_elements": bible.required_elements,
+            "forbidden_elements": bible.forbidden_elements,
+        }
+
+    # Use the most recent active arc for this branch (or any active arc)
+    current_arc: dict[str, Any] = {}
+    branch_arcs = [a for a in arcs if str(a.branch_id) == str(branch_id) and a.status == "active"]
+    if not branch_arcs:
+        branch_arcs = [a for a in arcs if a.status == "active"]
+    if branch_arcs:
+        arc = branch_arcs[-1]
+        current_arc = {
+            "goal": arc.goal,
+            "conflict": arc.conflict,
+            "stage": arc.stage,
+            "exit_conditions": arc.exit_conditions,
+            "summary": arc.summary,
+        }
+
+    characters: list[dict[str, Any]] = []
+    foreshadowing: list[ForeshadowingMemory] = []
+    rolling_summary = ""
+    if memory:
+        for char in memory.characters:
+            characters.append({
+                "name": char.name,
+                "role": char.role,
+                "location": char.location,
+                "motivation": char.motivation,
+                "known_facts": char.known_facts,
+                "relationships": char.relationships,
+                "alive": char.alive,
+            })
+        for fid, fdesc in memory.foreshadowing.items():
+            foreshadowing.append(ForeshadowingMemory(id=fid, description=fdesc, status="active"))
+        rolling_summary = memory.rolling_summary
+
+    choices: list[ChoiceMemory] = []
+    for seg in segments:
+        cp = repository.get_choice_point_for_segment(seg.id)
+        if cp and cp.status == "selected":
+            if cp.selected_option_id:
+                opt = next((o for o in cp.options if o.id == cp.selected_option_id), None)
+                if opt:
+                    choices.append(ChoiceMemory(text=opt.text, effects=dict(opt.effects)))
+            elif cp.selected_custom_action:
+                choices.append(ChoiceMemory(
+                    text=cp.selected_custom_action,
+                    effects=dict(cp.selected_effects or {}),
+                ))
+
+    scenes = [
+        SceneMemory(sequence=s.sequence, content=s.content, summary=s.summary)
+        for s in segments
+    ]
+
+    layered = LayeredMemory(
+        fixed_memory=fixed_memory,
+        current_arc=current_arc,
+        characters=characters,
+        foreshadowing=foreshadowing,
+        choices=choices,
+        rolling_summary=rolling_summary,
+        scenes=scenes,
+    )
+
+    try:
+        built = ContextBuilder(budget_tokens=8000).build(layered)
+        _log.debug("Built generation context: %d tokens estimated", built.estimated_tokens)
+        return dict(built.layers)
+    except Exception as exc:
+        _log.warning("Context build failed, using minimal context: %s", exc)
+        return {"story_id": str(story_id), "branch_id": str(branch_id)}
 
 
 __all__ = ["create_generation_router"]
