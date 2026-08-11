@@ -1,7 +1,9 @@
 FROM python:3.12-slim AS builder
 WORKDIR /build
 COPY pyproject.toml uv.lock ./
-RUN pip install uv && uv sync --no-dev --frozen
+# Install deps only; skip the local 'storyflow' package (src/ not yet present)
+RUN pip install --no-cache-dir uv \
+    && uv sync --no-dev --frozen --no-install-project
 
 FROM python:3.12-slim
 LABEL maintainer="StoryFlow"
