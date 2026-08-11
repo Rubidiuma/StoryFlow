@@ -27,7 +27,8 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run tests
-        run: UV_CACHE_DIR=.uv-cache uv run pytest -q
+        run: UV_CACHE_DIR=.uv-cache uv run pytest -q --timeout=120
+        timeout-minutes: 10
 
   secret-scan:
     name: secret-scan
