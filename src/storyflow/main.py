@@ -1,11 +1,15 @@
 """FastAPI application entry point."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from storyflow.api.routes.generation import create_generation_router
 from storyflow.api.routes.stories import create_story_router
 from storyflow.db.repositories import StoryRepository
 from storyflow.llm.base import LLMClient
+from storyflow.services.generation import recover_interrupted_generations
 
 
 def create_app(
@@ -15,7 +19,14 @@ def create_app(
     emit_generation_heartbeat: bool = False,
 ) -> FastAPI:
     """Create the StoryFlow application."""
-    app = FastAPI(title="StoryFlow", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if repository is not None:
+            recover_interrupted_generations(repository)
+        yield
+
+    app = FastAPI(title="StoryFlow", version="0.1.0", lifespan=lifespan)
 
     @app.get("/health")
     def health() -> dict[str, str]:

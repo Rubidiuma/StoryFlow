@@ -1,5 +1,6 @@
 """Deterministic single-scene generation coordinator."""
 
+import asyncio
 import json
 import sqlite3
 from collections.abc import Awaitable, Callable, Mapping
@@ -12,7 +13,14 @@ from pydantic import ValidationError
 
 from storyflow.db.repositories import StoryRepository
 from storyflow.domain.enums import StoryStatus
-from storyflow.domain.models import ChoicePoint, GenerationEvent, ScenePlan, StorySegment
+from storyflow.domain.models import (
+    Branch,
+    ChoicePoint,
+    GenerationEvent,
+    ScenePlan,
+    Story,
+    StorySegment,
+)
 from storyflow.domain.state_machine import StoryStateMachine
 from storyflow.llm.base import InvalidStructuredResponseError, LLMClient, LLMRequestError
 from storyflow.prompts.director import DIRECTOR_PROMPT_V1
@@ -52,11 +60,26 @@ class GenerationService:
     def __init__(self, repository: StoryRepository, llm_client: LLMClient) -> None:
         self.repository = repository
         self.llm_client = llm_client
+        self._active_branches: set[tuple[UUID, UUID]] = set()
+
+    def try_reserve_branch(self, story_id: UUID, branch_id: UUID) -> bool:
+        """Atomically reserve one branch within this service's event loop."""
+        branch_key = (story_id, branch_id)
+        if branch_key in self._active_branches:
+            return False
+        self._active_branches.add(branch_key)
+        return True
+
+    def release_branch(self, story_id: UUID, branch_id: UUID) -> None:
+        """Release an owned branch reservation on every terminal path."""
+        self._active_branches.discard((story_id, branch_id))
 
     async def generate(
         self,
         request: GenerationRequest,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        *,
+        branch_reserved: bool = False,
     ) -> GenerationResult:
         """Generate and commit at most one complete scene."""
         existing = self.repository.get_segment_by_generation_key(request.generation_key)
@@ -91,6 +114,31 @@ class GenerationService:
                 error_code="invalid_generation_state",
             )
 
+        acquired_here = not branch_reserved
+        owns_reservation = branch_reserved or self.try_reserve_branch(
+            request.story_id, request.branch_id
+        )
+        if not owns_reservation:
+            return GenerationResult(
+                status=story.status,
+                error_code="generation_conflict",
+            )
+
+        try:
+            return await self._generate_reserved(request, story, branch, on_delta)
+        finally:
+            if acquired_here:
+                self.release_branch(request.story_id, request.branch_id)
+
+    async def _generate_reserved(
+        self,
+        request: GenerationRequest,
+        story: Story,
+        branch: Branch,
+        on_delta: Callable[[str], Awaitable[None]] | None,
+    ) -> GenerationResult:
+        """Run one generation after its branch has been exclusively reserved."""
+
         state_machine = StoryStateMachine(story.status)
         state_sequence: list[StoryStatus] = [story.status]
         self._advance(state_machine, state_sequence, StoryStatus.PLANNING)
@@ -121,6 +169,11 @@ class GenerationService:
                 chunks.append(chunk)
                 if on_delta is not None and chunk:
                     await on_delta(chunk)
+        except asyncio.CancelledError:
+            return GenerationResult(
+                status=StoryStatus.ERROR,
+                error_code="generation_interrupted",
+            )
         except Exception:  # noqa: BLE001 - provider exceptions are redacted at this boundary
             return GenerationResult(status=StoryStatus.ERROR, error_code="writer_failed")
 
@@ -202,4 +255,15 @@ class GenerationService:
         state_machine.transition(target)
         state_sequence.append(target)
 
-__all__ = ["GenerationRequest", "GenerationResult", "GenerationService"]
+
+def recover_interrupted_generations(repository: StoryRepository) -> list[Story]:
+    """Recover persisted in-flight stories without invoking an LLM."""
+    return repository.recover_interrupted_generations()
+
+
+__all__ = [
+    "GenerationRequest",
+    "GenerationResult",
+    "GenerationService",
+    "recover_interrupted_generations",
+]

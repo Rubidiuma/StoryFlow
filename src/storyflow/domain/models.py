@@ -324,7 +324,9 @@ class GenerationEvent(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     story_id: UUID
-    branch_id: UUID
+    branch_id: UUID | None = Field(
+        ..., description="Branch for generation work; absent for aggregate-level recovery"
+    )
     event_type: str = Field(..., description="planning, streaming, committed, error, etc.")
     request_id: str = Field(..., description="Unique request identifier for tracing")
     duration_ms: int = Field(0, description="Duration in milliseconds")

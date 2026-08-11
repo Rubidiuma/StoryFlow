@@ -58,13 +58,18 @@ def create_generation_router(
 ) -> APIRouter:
     """Build generation routes around explicitly injected runtime dependencies."""
     router = APIRouter(prefix="/api/stories", tags=["generation"])
+    generation_service = (
+        GenerationService(repository, llm_client)
+        if repository is not None and llm_client is not None
+        else None
+    )
 
     @router.post("/{story_id}/generate")
     async def generate_story(
         story_id: UUID,
         request: GenerateStoryRequest,
     ) -> StreamingResponse:
-        if repository is None or llm_client is None:
+        if repository is None or llm_client is None or generation_service is None:
             raise generation_http_error(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "generation_service_unavailable",
@@ -92,7 +97,6 @@ def create_generation_router(
                 status.HTTP_409_CONFLICT,
                 "invalid_generation_state",
             )
-
         generation_request = GenerationRequest(
             story_id=story_id,
             branch_id=request.branch_id,
@@ -100,6 +104,15 @@ def create_generation_router(
             context=request.context,
             scenes_since_last_choice=_scenes_since_last_choice(repository, request.branch_id),
         )
+        branch_reserved = False
+        if existing is None:
+            branch_reserved = generation_service.try_reserve_branch(story_id, request.branch_id)
+            if not branch_reserved:
+                raise generation_http_error(
+                    status.HTTP_409_CONFLICT,
+                    "generation_conflict",
+                    retryable=True,
+                )
 
         async def event_stream() -> AsyncIterator[str]:
             queue: asyncio.Queue[_SSEEvent | None] = asyncio.Queue()
@@ -109,9 +122,10 @@ def create_generation_router(
 
             async def run_generation() -> None:
                 try:
-                    result = await GenerationService(repository, llm_client).generate(
+                    result = await generation_service.generate(
                         generation_request,
                         on_delta=publish_delta,
+                        branch_reserved=branch_reserved,
                     )
                     await _publish_result(queue, result)
                 finally:
@@ -128,6 +142,8 @@ def create_generation_router(
             finally:
                 if not task.done():
                     task.cancel()
+                if branch_reserved:
+                    generation_service.release_branch(story_id, request.branch_id)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 

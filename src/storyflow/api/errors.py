@@ -8,6 +8,8 @@ _GENERATION_RETRYABILITY: Final[dict[str, bool]] = {
     "director_failed": True,
     "director_invalid": False,
     "writer_failed": True,
+    "generation_interrupted": True,
+    "generation_conflict": True,
     "commit_failed": True,
     "invalid_generation_state": False,
 }

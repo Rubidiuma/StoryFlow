@@ -63,6 +63,74 @@ class StoryRepository:
             ).fetchone()
         return Story.model_validate_json(row["payload"]) if row else None
 
+    def recover_interrupted_generations(self) -> list[Story]:
+        """Atomically mark persisted in-flight stories as interrupted once."""
+        active_statuses = {
+            StoryStatus.PLANNING,
+            StoryStatus.STREAMING,
+            StoryStatus.COMMITTING,
+        }
+        recovered: list[Story] = []
+        with self.database.transaction() as connection:
+            rows = connection.execute(
+                "SELECT current_branch_id, payload FROM stories ORDER BY rowid"
+            ).fetchall()
+            for row in rows:
+                story = Story.model_validate_json(row["payload"])
+                if story.status not in active_statuses:
+                    continue
+                current_branch_id = row["current_branch_id"]
+                event_branch_id: UUID | None = None
+                if (
+                    current_branch_id is not None
+                    and story.current_branch_id is not None
+                    and current_branch_id == str(story.current_branch_id)
+                ):
+                    branch_exists = connection.execute(
+                        "SELECT 1 FROM branches WHERE id = ? AND story_id = ?",
+                        (current_branch_id, str(story.id)),
+                    ).fetchone()
+                    if branch_exists is not None:
+                        event_branch_id = story.current_branch_id
+                original_status = story.status
+                recovered_story = story.model_copy(
+                    update={
+                        "status": transition(original_status, StoryStatus.ERROR),
+                        "version": story.version + 1,
+                        "updated_at": datetime.now(UTC).replace(tzinfo=None),
+                    }
+                )
+                event = GenerationEvent(
+                    story_id=story.id,
+                    branch_id=event_branch_id,
+                    event_type="error",
+                    request_id=f"startup-recovery:{story.id}:{story.version}",
+                    duration_ms=0,
+                    input_token_estimate=0,
+                    output_size=0,
+                    error_code="generation_interrupted",
+                    state_sequence=[original_status, StoryStatus.ERROR],
+                )
+                connection.execute(
+                    "UPDATE stories SET payload = ? WHERE id = ?",
+                    (_json(recovered_story), str(story.id)),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO generation_events (id, story_id, branch_id, request_id, payload)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(event.id),
+                        str(event.story_id),
+                        _optional_id(event.branch_id),
+                        event.request_id,
+                        _json(event),
+                    ),
+                )
+                recovered.append(recovered_story)
+        return recovered
+
     def set_current_branch(self, story_id: UUID, branch_id: UUID) -> Story:
         """Atomically select a branch that belongs to the story in both storage forms."""
         with self.database.transaction() as connection:

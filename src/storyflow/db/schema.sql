@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS choice_options (
 CREATE TABLE IF NOT EXISTS generation_events (
     id TEXT PRIMARY KEY,
     story_id TEXT NOT NULL REFERENCES stories(id),
-    branch_id TEXT NOT NULL,
+    branch_id TEXT,
     request_id TEXT NOT NULL UNIQUE,
     payload TEXT NOT NULL,
     FOREIGN KEY (branch_id, story_id) REFERENCES branches(id, story_id)
