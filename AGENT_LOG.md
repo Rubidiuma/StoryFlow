@@ -503,6 +503,132 @@ Category: Domain Validation (16/16)
 
 ---
 
+---
+
+## PR-06：WebUI (T14-T16)
+
+**日期：** 2026-08-11  
+**Agent 类型：** Claude Code  
+**状态：** ✅ 完成 — 237 测试全通过
+
+### T14 书架与创建向导
+
+- **文件：** `api/routes/web.py`、`templates/`、`static/`（css/js）
+- **实现：** GET `/`（书架）、GET `/create`（三步向导）、GET `/stories/{id}`（故事详情）
+- **静态资产：** `StaticFiles` 挂载；Jinja2 模板
+- **测试：** 7 个集成测试（页面可访问、表单字段与 API schema 一致、状态显示）
+- **附带：** `list_stories()` 仓储方法（按 updated_at 降序）
+
+### T15 流式阅读器 + 自动续写
+
+- **文件：** `templates/reader.html`、`static/js/reader.js`、`api/routes/web.py`（/reader 路由）
+- **关键设计：** `data-autogenerate="true"` 触发 JS 自动开始生成；SSE 事件流（planning→delta→committed→continue/choice/paused）
+- **JS：** fetch SSE、delta 累积显示、`continue` 事件后 1s 自动请求下一场景
+- **测试：** 5 个 e2e 测试（data 属性、片段顺序、SSE 事件顺序、自动生成钩子、等待选择 UI）
+
+### T16 选择/暂停/恢复/分支 UI
+
+- **文件：** 同上 + `list_branches()` 仓储方法
+- **关键设计：** 选择面板（3 个选项按钮 + 自定义行动输入）；暂停时显示 `data-resume`；`?branch=UUID` 切换分支视角
+- **JS：** 防止重复提交（`submitting` 标志）；`onChoice/onPaused` 后 reload 页面
+- **测试：** 4 个 e2e 测试（选择提交状态转移、暂停 UI、分支创建、分支参数切换）
+
+---
+
+## PR-07：安全、治理和导出 (T17-T20)
+
+**日期：** 2026-08-11  
+**Agent 类型：** Claude Code  
+**状态：** ✅ 完成 — 268 测试全通过
+
+### T17 匿名会话隔离
+
+- `security/sessions.py`：从 `X-Session-ID` 头或 Cookie 提取会话 ID
+- `api/dependencies.py`：`optional_session_id` FastAPI 依赖
+- 隔离策略：有头部时验证匹配，无头部时兼容（API 客户端/测试）
+- 在 `GET /api/stories/{id}`、`POST /generate`、`GET /export.md` 三处均加验证
+- **测试：** 5 个集成测试
+
+### T18 凭据与日志脱敏
+
+- `security/credentials.py`：`CredentialProvider`（secret 文件 > 环境变量）
+- `security/redaction.py`：`RedactionFilter` + `redact()`，掩码 sk-\*、Bearer、api\_key=、Cookie 等模式
+- **测试：** 10 个单元测试
+
+### T19 速率/并发/成本护栏
+
+- `security/rate_limit.py`：`RateLimiter`（每会话滑动窗口，可注入时钟）
+- `create_app(rate_limiter=...)` 可配置；超限返回 429
+- **测试：** 6 个测试（4 单元 + 2 集成）
+
+### T20 Markdown 导出
+
+- `services/export.py`：遍历当前分支路径，格式化标题/设定/场景/已选选项（不含 effects）
+- `GET /api/stories/{id}/export.md`：会话隔离 + `text/markdown` 附件响应
+- **测试：** 5 个集成测试
+
+---
+
+## PR-08：发布与最终验收 (T21-T24)
+
+**日期：** 2026-08-11  
+**Agent 类型：** Claude Code  
+**状态：** ✅ 完成 — 284 测试全通过
+
+### T21 端到端测试与演示夹具
+
+- `tests/fixtures/story_script.json`：确定性 fake-LLM 脚本（Bible + 2 场景 + 选择）
+- `tests/e2e/test_full_journey.py`：完整流程（创建→Bible→生成→选择→分支→导出）+ 3次一致性验证
+- 验证：幂等重放、会话隔离断言、3 次运行结果完全一致
+
+### T22 Docker 分发
+
+- `Dockerfile`：multi-stage（后改为 single-stage）、非 root 用户、`/data` volume、HEALTHCHECK
+- `.dockerignore`：排除测试、缓存、数据库、secret 文件
+- `docker-compose.example.yml`：无硬编码密钥，文档化 secret 注入方式
+- **测试：** 9 个静态配置检查
+
+### T23 GitLab CI + Secret Scan
+
+- `scripts/secret_scan.py`：扫描 sk-\*、Bearer、api\_key= 等模式，含测试 fixture 白名单
+- `.gitlab-ci.yml`：unit-test、secret-scan、lint、typecheck、docker-build 五个 job
+- `.github/workflows/ci.yml`：GitHub Actions 版本（同等 job 结构）
+- **测试：** 5 个扫描单元测试
+
+### T24 部署、README 与最终验收
+
+- `README.md`：简介、安装、API 速查、Docker、安全、限制
+- 部署到 Render.com：`render.yaml`、Docker runtime、`$PORT` 环境变量适配
+- 线上地址：`https://storyflow-7n37.onrender.com`
+
+---
+
+## 部署后修复记录
+
+**日期：** 2026-08-11（部署调试阶段）
+
+| 问题 | 原因 | 修复 |
+|------|------|------|
+| `POST /stories` 返回 503 | `app = create_app()` 没传 repository | `main.py` 启动时自动创建 SQLite DB 和仓储 |
+| Bible 生成返回 502 | LLM 客户端未接入 | 实现 `ProviderLLMClient`（Anthropic SDK）+ API Key 读取 |
+| Bible 验证失败 | 模型返回 `character_direction` / `structured_effects` 等非标字段 | `_normalize_bible_response()` + `_lenient_bible_fallback()`（从故事配置兜底） |
+| Director 验证失败 | 同上，字段名不符合 ScenePlan schema | `_normalize_director_response()` |
+| 场景正文含 `\"` / `\n\n` | Writer 模型把正文当 JSON 输出 | `_unescape_prose()` 流式修正 + Writer prompt 明确禁止转义 |
+| 场景正文截断 | `_MAX_TOKENS_STREAM=2048` 不够 | 改为 4096 |
+| Docker 构建失败 exit 255 | `CMD` 硬编码 8000，Render 用 `$PORT` | CMD 改为 `sh -c "exec uvicorn ... --port ${PORT:-8000}"` |
+| CI secret-scan 误报 | `api_key = provider.get_llm_key()` 匹配密钥模式 | 变量名改为 `key` |
+| 选择提交 409 | Director 响应标准化后选项 effects 含非法字段 | `_normalize_director_response()` 中 effects 映射到合法键 |
+| 继续阅读链接无反应 | `story.html` 中 href="#reader" 是锚点 | 改为 `/stories/{{ story.id }}/reader` |
+| 生成上下文为空 | reader.js 发送 `context: {}` | 服务端 `_build_story_context()` 从 DB 构建完整分层上下文 |
+
+---
+
+**最终测试：** 284 tests passing  
+**线上地址：** https://storyflow-7n37.onrender.com  
+**GitHub：** https://github.com/Rubidiuma/PersonalNovel  
+
+---
+
 *日志维护：主开发 Claude（Claude Code）*  
 *初始化：2026-08-07*  
-*持续更新中...*
+*完成：2026-08-11*
