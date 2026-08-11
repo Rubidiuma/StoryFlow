@@ -78,6 +78,79 @@ class GeneratedBiblePayload(BaseModel):
         return _visible(value)
 
 
+def _normalize_bible_response(raw: dict) -> dict:
+    """Map common LLM field-name variations to GeneratedBiblePayload schema."""
+    r = dict(raw)
+
+    # world_rules aliases
+    for alt in ("world_setting", "world_building", "worldRules", "world"):
+        if alt in r and "world_rules" not in r:
+            r["world_rules"] = r.pop(alt)
+
+    # tone_rules aliases
+    for alt in ("tone", "toneRules", "writing_tone", "style_rules", "tone_style"):
+        if alt in r and "tone_rules" not in r:
+            r["tone_rules"] = r.pop(alt)
+
+    # protagonist_core aliases
+    for alt in ("protagonist", "protagonistCore", "character_core", "hero_core",
+                "main_character", "protagonist_description"):
+        if alt in r and "protagonist_core" not in r:
+            r["protagonist_core"] = r.pop(alt)
+
+    # required_elements aliases
+    for alt in ("required", "must_include", "required_themes", "required_elements_list"):
+        if alt in r and "required_elements" not in r:
+            r["required_elements"] = r.pop(alt)
+    if "required_elements" not in r:
+        r["required_elements"] = []
+    if isinstance(r["required_elements"], str):
+        r["required_elements"] = [r["required_elements"]]
+
+    # forbidden_elements aliases
+    for alt in ("forbidden", "not_allowed", "excluded", "forbidden_elements_list"):
+        if alt in r and "forbidden_elements" not in r:
+            r["forbidden_elements"] = r.pop(alt)
+    if "forbidden_elements" not in r:
+        r["forbidden_elements"] = []
+    if isinstance(r["forbidden_elements"], str):
+        r["forbidden_elements"] = [r["forbidden_elements"]]
+
+    # first_arc aliases
+    for alt in ("initial_arc", "opening_arc", "arc", "story_arc", "first_story_arc"):
+        if alt in r and "first_arc" not in r:
+            r["first_arc"] = r.pop(alt)
+
+    # Normalize first_arc sub-fields
+    if isinstance(r.get("first_arc"), dict):
+        arc = dict(r["first_arc"])
+        for alt in ("arc_goal", "arcGoal", "main_goal", "objective"):
+            if alt in arc and "goal" not in arc:
+                arc["goal"] = arc.pop(alt)
+        for alt in ("main_conflict", "arcConflict", "core_conflict", "central_conflict"):
+            if alt in arc and "conflict" not in arc:
+                arc["conflict"] = arc.pop(alt)
+        r["first_arc"] = arc
+
+    # Normalize characters list
+    if isinstance(r.get("characters"), list):
+        normalized_chars = []
+        for char in r["characters"]:
+            if not isinstance(char, dict):
+                continue
+            c = dict(char)
+            # role aliases
+            for alt in ("character_role", "type", "character_type"):
+                if alt in c and "role" not in c:
+                    c["role"] = c.pop(alt)
+            if "role" not in c:
+                c["role"] = "character"
+            normalized_chars.append(c)
+        r["characters"] = normalized_chars
+
+    return r
+
+
 class BibleGenerationValidationError(ValueError):
     """Both structured-generation attempts failed validation or parsing."""
 
@@ -102,10 +175,11 @@ async def generate_validated_bible(
     context = story.config.model_dump(mode="json")
     for _ in range(2):
         try:
-            response = await llm_client.generate_json(
+            raw = await llm_client.generate_json(
                 prompt=BIBLE_PROMPT_V1,
                 context=context,
             )
+            response = _normalize_bible_response(raw)
             return GeneratedBiblePayload.model_validate(response)
         except (TimeoutError, LLMRequestError) as exc:
             raise BibleGenerationRequestError("Bible generation request failed") from exc
