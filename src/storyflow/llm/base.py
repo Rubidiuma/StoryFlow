@@ -8,6 +8,14 @@ class InvalidStructuredResponseError(ValueError):
     """A structured LLM response could not be represented as a JSON object."""
 
 
+class LLMRequestError(RuntimeError):
+    """An expected model request failure that application code may safely classify."""
+
+
+class LLMRejectedError(LLMRequestError):
+    """The configured model explicitly rejected a request without producing output."""
+
+
 @runtime_checkable
 class LLMClient(Protocol):
     """One structured request or one streamed text request to an LLM."""

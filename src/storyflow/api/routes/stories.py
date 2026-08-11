@@ -15,6 +15,7 @@ from storyflow.domain.enums import StoryStatus
 from storyflow.domain.models import Story, StoryConfig
 from storyflow.llm.base import LLMClient
 from storyflow.services.bible import (
+    BibleGenerationRequestError,
     BibleGenerationValidationError,
     PersistedBibleBundle,
     generate_validated_bible,
@@ -79,6 +80,15 @@ def create_story_router(
                 detail={
                     "code": "BIBLE_GENERATION_INVALID_RESPONSE",
                     "message": "Generated Bible could not be validated.",
+                    "retryable": True,
+                },
+            ) from exc
+        except BibleGenerationRequestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "code": "BIBLE_GENERATION_REQUEST_FAILED",
+                    "message": "Story Bible generation request failed.",
                     "retryable": True,
                 },
             ) from exc

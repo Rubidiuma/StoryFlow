@@ -13,7 +13,7 @@ from storyflow.domain.models import (
     StoryArc,
     StoryBible,
 )
-from storyflow.llm.base import InvalidStructuredResponseError, LLMClient
+from storyflow.llm.base import InvalidStructuredResponseError, LLMClient, LLMRequestError
 from storyflow.prompts.bible import BIBLE_PROMPT_V1
 
 
@@ -79,6 +79,10 @@ class BibleGenerationValidationError(ValueError):
     """Both structured-generation attempts failed validation or parsing."""
 
 
+class BibleGenerationRequestError(RuntimeError):
+    """The model request failed before it produced a structured response."""
+
+
 class PersistedBibleBundle(BaseModel):
     """API-facing view of the generated records committed together."""
 
@@ -100,6 +104,8 @@ async def generate_validated_bible(
                 context=context,
             )
             return GeneratedBiblePayload.model_validate(response)
+        except (TimeoutError, LLMRequestError) as exc:
+            raise BibleGenerationRequestError("Bible generation request failed") from exc
         except (json.JSONDecodeError, InvalidStructuredResponseError, ValidationError):
             continue
     raise BibleGenerationValidationError("invalid structured Bible response")

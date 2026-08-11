@@ -13,6 +13,7 @@ import pytest
 from storyflow.db.database import Database
 from storyflow.db.repositories import StoryRepository
 from storyflow.domain.enums import StoryStatus
+from storyflow.llm.base import LLMRejectedError
 from storyflow.llm.fake import FakeLLMClient
 from storyflow.main import create_app
 
@@ -241,6 +242,92 @@ async def test_non_structured_llm_errors_are_not_retried(
         with pytest.raises(error_type, match="client implementation failure"):
             await client.post(f"/stories/{story_id}/bible/generate")
 
+    assert len(llm_client.calls) == 1
+    story = repository.get_story(story_id)
+    assert story is not None
+    assert story.status.value == "DRAFT"
+    assert story.current_branch_id is None
+    with database.read() as connection:
+        counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("story_bibles", "branches", "character_states", "story_arcs")
+        }
+    assert counts == {
+        "story_bibles": 0,
+        "branches": 0,
+        "character_states": 0,
+        "story_arcs": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_llm_timeout_returns_retryable_502_without_partial_bundle(tmp_path: Path) -> None:
+    """An expected model timeout fails once without exposing provider details or partial data."""
+    database, repository = make_repository(tmp_path)
+    llm_client = FakeLLMClient(
+        json_responses=[TimeoutError("provider timed out with credential=secret")]
+    )
+    transport = httpx.ASGITransport(
+        app=create_app(repository=repository, llm_client=llm_client)
+    )
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        draft_response = await client.post("/stories", json=valid_story_request())
+        story_id = draft_response.json()["id"]
+        response = await client.post(f"/stories/{story_id}/bible/generate")
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": {
+            "code": "BIBLE_GENERATION_REQUEST_FAILED",
+            "message": "Story Bible generation request failed.",
+            "retryable": True,
+        }
+    }
+    assert "credential=secret" not in response.text
+    assert len(llm_client.calls) == 1
+    story = repository.get_story(story_id)
+    assert story is not None
+    assert story.status.value == "DRAFT"
+    assert story.current_branch_id is None
+    with database.read() as connection:
+        counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("story_bibles", "branches", "character_states", "story_arcs")
+        }
+    assert counts == {
+        "story_bibles": 0,
+        "branches": 0,
+        "character_states": 0,
+        "story_arcs": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_llm_rejection_returns_retryable_502_without_partial_bundle(tmp_path: Path) -> None:
+    """An explicit model rejection fails once without exposing provider details or partial data."""
+    database, repository = make_repository(tmp_path)
+    llm_client = FakeLLMClient(
+        json_responses=[LLMRejectedError("model rejected policy=secret")]
+    )
+    transport = httpx.ASGITransport(
+        app=create_app(repository=repository, llm_client=llm_client)
+    )
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        draft_response = await client.post("/stories", json=valid_story_request())
+        story_id = draft_response.json()["id"]
+        response = await client.post(f"/stories/{story_id}/bible/generate")
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": {
+            "code": "BIBLE_GENERATION_REQUEST_FAILED",
+            "message": "Story Bible generation request failed.",
+            "retryable": True,
+        }
+    }
+    assert "policy=secret" not in response.text
     assert len(llm_client.calls) == 1
     story = repository.get_story(story_id)
     assert story is not None
