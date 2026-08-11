@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """FastAPI application entry point."""
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,7 @@ from storyflow.api.routes.stories import create_story_router
 from storyflow.api.routes.web import WEB_STATIC_DIRECTORY, create_web_router
 from storyflow.db.repositories import StoryRepository
 from storyflow.llm.base import LLMClient
+from storyflow.security.credentials import CredentialProvider
 from storyflow.security.rate_limit import RateLimiter
 from storyflow.services.generation import recover_interrupted_generations
 
@@ -43,8 +45,8 @@ def create_app(
         return {
             "status": "ok",
             "application": "ready",
-            "database": "unconfigured",
-            "llm": "unconfigured",
+            "database": "configured" if repository is not None else "unconfigured",
+            "llm": "configured" if llm_client is not None else "unconfigured",
         }
 
     app.include_router(create_web_router(repository))
@@ -62,4 +64,17 @@ def create_app(
     return app
 
 
-app = create_app()
+def _build_llm_client() -> LLMClient | None:
+    """Create the real LLM client from environment or secret file credentials."""
+    from pathlib import Path
+    secret_file_path = os.getenv("STORYFLOW_LLM_KEY_FILE")
+    secret_file = Path(secret_file_path) if secret_file_path else None
+    provider = CredentialProvider(secret_file=secret_file)
+    api_key = provider.get_llm_key()
+    if api_key is None:
+        return None
+    from storyflow.llm.provider import ProviderLLMClient
+    return ProviderLLMClient(api_key=api_key)
+
+
+app = create_app(llm_client=_build_llm_client())

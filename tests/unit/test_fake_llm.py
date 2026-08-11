@@ -119,10 +119,8 @@ async def test_fake_interrupts_a_scripted_stream_after_earlier_chunks() -> None:
     assert chunks == ["The first sentence. "]
 
 
-@pytest.mark.asyncio
-async def test_provider_skeleton_has_no_implicit_network_implementation() -> None:
-    """A provider must be explicitly wired before application code can make a real request."""
-    client = ProviderLLMClient()
-
-    with pytest.raises(NotImplementedError, match="not configured"):
-        await client.generate_json(prompt="make bible", context={})
+def test_provider_client_requires_api_key() -> None:
+    """ProviderLLMClient must be constructed with an explicit API key."""
+    import inspect
+    sig = inspect.signature(ProviderLLMClient.__init__)
+    assert "api_key" in sig.parameters, "ProviderLLMClient must require an api_key parameter"
