@@ -232,18 +232,23 @@ class GenerationService:
 
     async def _generate_plan(self, context: Mapping[str, object]) -> ScenePlan | None:
         """Validate a Director response, retrying one structural failure only."""
-        for _ in range(2):
+        import logging
+        _log = logging.getLogger(__name__)
+        for attempt in range(2):
             try:
                 response = await self.llm_client.generate_json(
                     prompt=DIRECTOR_PROMPT_V1,
                     context=context,
                 )
                 return ScenePlan.model_validate(response)
-            except (json.JSONDecodeError, InvalidStructuredResponseError, ValidationError):
+            except (json.JSONDecodeError, InvalidStructuredResponseError, ValidationError) as exc:
+                _log.warning("Director attempt %d failed validation: %s | response keys: %s",
+                             attempt + 1, exc, list(response.keys()) if isinstance(response, dict) else "N/A")
                 continue
             except (TimeoutError, LLMRequestError) as exc:
                 raise _DirectorRequestFailure from exc
             except Exception as exc:
+                _log.exception("Director unexpected error: %s", exc)
                 raise _DirectorRequestFailure from exc
         return None
 

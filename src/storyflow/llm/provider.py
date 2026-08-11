@@ -15,6 +15,51 @@ from storyflow.llm.base import InvalidStructuredResponseError, LLMRequestError
 _log = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = os.getenv("STORYFLOW_LLM_MODEL", "claude-haiku-4-5")
+
+
+def _extract_json_object(text: str) -> dict | None:
+    """Extract the first JSON object from text, stripping prose and code fences."""
+    # 1. Strip markdown code fences
+    stripped = text.strip()
+    for fence in ("```json", "```JSON", "```"):
+        if stripped.startswith(fence):
+            end = stripped.find("```", len(fence))
+            stripped = stripped[len(fence):end].strip() if end != -1 else stripped[len(fence):].strip()
+            break
+
+    # 2. Try direct parse first (model followed instructions perfectly)
+    try:
+        result = json.loads(stripped)
+        if isinstance(result, dict):
+            return result
+    except json.JSONDecodeError:
+        pass
+
+    # 3. Find the first '{' and last '}' to extract embedded JSON
+    start = stripped.find("{")
+    if start == -1:
+        return None
+    # Walk backwards from end to find matching closing brace
+    depth = 0
+    end = -1
+    for i, ch in enumerate(stripped[start:], start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end == -1:
+        return None
+    candidate = stripped[start:end]
+    try:
+        result = json.loads(candidate)
+        if isinstance(result, dict):
+            return result
+    except json.JSONDecodeError:
+        return None
+    return None
 _MAX_TOKENS_JSON = 4096
 _MAX_TOKENS_STREAM = 2048
 
@@ -79,23 +124,15 @@ class ProviderLLMClient:
         text = next(
             (block.text for block in response.content if block.type == "text"), ""
         )
-        _log.warning("LLM raw response (%d chars): %.600s", len(text), text)
+        _log.warning("LLM raw response (%d chars): %.800s", len(text), text)
 
-        # Strip markdown code fences if present
-        stripped = text.strip()
-        if stripped.startswith("```"):
-            lines = stripped.splitlines()
-            stripped = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        try:
-            result = json.loads(stripped)
-        except json.JSONDecodeError as exc:
-            _log.warning("LLM returned non-JSON: %.300s", stripped)
+        parsed = _extract_json_object(text)
+        if parsed is None:
+            _log.warning("No JSON object found in LLM response: %.400s", text)
             raise InvalidStructuredResponseError(
-                f"Model returned non-JSON: {stripped[:200]}"
-            ) from exc
-        if not isinstance(result, dict):
-            raise InvalidStructuredResponseError("Model response must be a JSON object")
-        return result
+                f"No JSON object found in response: {text[:200]}"
+            )
+        return parsed
 
     # stream_text must be a regular (sync) method returning an AsyncIterator,
     # matching the LLMClient protocol and how FakeLLMClient works.
