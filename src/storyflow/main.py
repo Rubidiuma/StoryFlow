@@ -82,12 +82,12 @@ def _build_llm_client() -> LLMClient | None:
     secret_file_path = os.getenv("STORYFLOW_LLM_KEY_FILE")
     secret_file = Path(secret_file_path) if secret_file_path else None
     provider = CredentialProvider(secret_file=secret_file)
-    api_key = provider.get_llm_key()
-    if api_key is None:
+    key = provider.get_llm_key()
+    if key is None:
         return None
     base_url = os.getenv("STORYFLOW_LLM_BASE_URL") or None
     from storyflow.llm.provider import ProviderLLMClient
-    return ProviderLLMClient(api_key=api_key, base_url=base_url)
+    return ProviderLLMClient(api_key=key, base_url=base_url)
 
 
 app = create_app(

@@ -70,13 +70,14 @@ def scan_directory(root: Path) -> list[tuple[Path, int, str]]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Scan for accidentally committed secrets.")
-    parser.add_argument("path", help="Directory to scan")
+    parser.add_argument("paths", nargs="+", help="Directories to scan")
     args = parser.parse_args()
-    root = Path(args.path).resolve()
-    findings = scan_directory(root)
-    if findings:
-        print(f"❌ Found {len(findings)} potential secret(s):")
-        for path, lineno, snippet in findings:
+    all_findings: list[tuple] = []
+    for p in args.paths:
+        all_findings.extend(scan_directory(Path(p).resolve()))
+    if all_findings:
+        print(f"❌ Found {len(all_findings)} potential secret(s):")
+        for path, lineno, snippet in all_findings:
             print(f"  {path}:{lineno}: {snippet}")
         sys.exit(1)
     print("✅ No secrets found.")
