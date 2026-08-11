@@ -17,6 +17,21 @@ _log = logging.getLogger(__name__)
 _DEFAULT_MODEL = os.getenv("STORYFLOW_LLM_MODEL", "claude-haiku-4-5")
 
 
+def _unescape_prose(text: str) -> str:
+    """Fix JSON-escaped prose that some models output (e.g. \\\" → \", \\n → newline)."""
+    # Only unescape if the chunk actually contains backslash sequences
+    if "\\" not in text:
+        return text
+    return (
+        text
+        .replace('\\"', '"')
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\'", "'")
+        .replace("\\\\", "\\")
+    )
+
+
 def _extract_json_object(text: str) -> dict | None:
     """Extract the first JSON object from text, stripping prose and code fences."""
     # 1. Strip markdown code fences
@@ -61,7 +76,7 @@ def _extract_json_object(text: str) -> dict | None:
         return None
     return None
 _MAX_TOKENS_JSON = 4096
-_MAX_TOKENS_STREAM = 2048
+_MAX_TOKENS_STREAM = 4096  # 2048 was too small for 500-800 Chinese char scenes
 
 
 class ProviderLLMClient:
@@ -162,7 +177,8 @@ async def _stream_generator(
             ],
         ) as stream:
             async for text in stream.text_stream:
-                yield text
+                # Some models JSON-escape the prose output; fix on the fly
+                yield _unescape_prose(text)
     except anthropic.APIStatusError as exc:
         _log.error("Anthropic stream API error %s: %s", exc.status_code, exc.message)
         raise LLMRequestError(
