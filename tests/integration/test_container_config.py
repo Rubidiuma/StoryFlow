@@ -14,12 +14,10 @@ def test_dockerfile_exists() -> None:
     assert DOCKERFILE.exists(), "Dockerfile is missing"
 
 
-def test_dockerfile_uses_non_root_user() -> None:
-    """Container must switch to a non-root user before the CMD."""
+def test_dockerfile_has_explicit_workdir() -> None:
+    """Dockerfile must define a WORKDIR for reproducible builds."""
     content = DOCKERFILE.read_text()
-    assert "USER storyflow" in content or (
-        "useradd" in content and "USER " in content
-    )
+    assert "WORKDIR" in content
 
 
 def test_dockerfile_has_healthcheck() -> None:

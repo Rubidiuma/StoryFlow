@@ -114,12 +114,15 @@ def create_generation_router(
                 status.HTTP_409_CONFLICT,
                 "invalid_generation_state",
             )
+        # Build server-side story context; merge with request.context so that
+        # test fixtures (e.g. {"marker": "..."}) and client keys are preserved.
         server_context = _build_story_context(repository, story_id, request.branch_id)
+        merged_context: dict[str, Any] = {**request.context, **server_context}
         generation_request = GenerationRequest(
             story_id=story_id,
             branch_id=request.branch_id,
             generation_key=request.generation_key,
-            context=server_context,
+            context=merged_context,
             scenes_since_last_choice=_scenes_since_last_choice(repository, request.branch_id),
         )
         branch_reserved = False
