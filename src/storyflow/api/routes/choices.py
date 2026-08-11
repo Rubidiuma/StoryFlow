@@ -2,11 +2,14 @@ from __future__ import annotations
 
 """Atomic preset and custom choice submission routes."""
 
+import logging
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
+
+_log = logging.getLogger(__name__)
 
 from storyflow.db.repositories import (
     ChoiceNotFoundError,
@@ -86,6 +89,12 @@ def create_choice_router(
         if existing is None:
             raise _choice_error(status.HTTP_404_NOT_FOUND, "choice_not_found")
         choice, story = existing
+        _log.warning(
+            "select_choice: choice_id=%s choice.version=%s request.version=%s "
+            "choice.status=%s story.status=%s story.current_branch_id=%s",
+            choice_id, choice.version, request.choice_version,
+            choice.status, story.status, story.current_branch_id,
+        )
         if choice.version != request.choice_version:
             if (
                 choice.status == "selected"
@@ -102,6 +111,7 @@ def create_choice_router(
                 status.HTTP_409_CONFLICT, "choice_version_conflict"
             )
         if story.status is not StoryStatus.WAITING_CHOICE:
+            _log.warning("invalid_choice_state: story.status=%s (expected WAITING_CHOICE)", story.status)
             raise _choice_error(status.HTTP_409_CONFLICT, "invalid_choice_state")
 
         custom_effects: dict[str, object] | None = None

@@ -11,6 +11,18 @@
   let activeRequest = false;
   let sceneCount = page.querySelectorAll(".segment").length;
 
+  // Inject a live "generating" indicator just before reader-controls
+  const genIndicator = document.createElement("div");
+  genIndicator.className = "reader-generating";
+  genIndicator.hidden = true;
+  genIndicator.innerHTML = '<span class="spinner"></span><span>正在生成…</span>';
+  const controls = page.querySelector(".reader-controls");
+  if (controls) controls.before(genIndicator);
+
+  function _setGenerating(on) {
+    if (genIndicator) genIndicator.hidden = !on;
+  }
+
   // ── Auto-generate on IDLE ─────────────────────────────────────────────────
   if (page.dataset.autogenerate === "true") {
     setTimeout(() => startGeneration(_nextKey()), 300);
@@ -25,6 +37,7 @@
     if (activeRequest) return;
     activeRequest = true;
     _clearError();
+    _setGenerating(true);
 
     let buffer = "";
     let segmentId = null;
@@ -41,6 +54,7 @@
       });
 
       if (!resp.ok) {
+        _setGenerating(false);
         _showError("生成请求失败，请重试。");
         activeRequest = false;
         return;
@@ -65,19 +79,21 @@
             onDelta(text) { buffer += text; if (streamArea) streamArea.textContent = buffer; },
             onCommitted(sid) { segmentId = sid; },
             onContinue() {
+              _setGenerating(false);
               _flushBuffer(buffer);
               buffer = "";
               activeRequest = false;
               sceneCount += 1;
               setTimeout(() => startGeneration(_nextKey()), 1000);
             },
-            onChoice() { activeRequest = false; location.reload(); },
-            onPaused() { activeRequest = false; location.reload(); },
-            onError() { _flushBuffer(buffer); buffer = ""; activeRequest = false; _showError("生成出错。"); },
+            onChoice() { _setGenerating(false); activeRequest = false; location.reload(); },
+            onPaused() { _setGenerating(false); activeRequest = false; location.reload(); },
+            onError() { _setGenerating(false); _flushBuffer(buffer); buffer = ""; activeRequest = false; _showError("生成出错。"); },
           });
         }
       }
     } catch (err) {
+      _setGenerating(false);
       activeRequest = false;
       _showError("网络错误，请检查连接。");
     }

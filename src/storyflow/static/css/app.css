@@ -196,6 +196,46 @@ input::placeholder, textarea::placeholder { color: #8c958e; }
 .reader-placeholder h2 { margin-bottom: 0.3rem; }
 .reader-placeholder p { margin-bottom: 0; color: var(--muted); }
 
+/* ── Reader page ── */
+.reader-page { max-width: var(--reading-width); margin-inline: auto; }
+.reader-header { display: flex; justify-content: space-between; align-items: flex-start;
+  flex-wrap: wrap; gap: 1rem; padding-block: 1.5rem; border-bottom: 1px solid var(--line);
+  margin-bottom: 2rem; }
+.reader-back { color: var(--muted); font-size: 0.875rem; }
+.segment-list { display: flex; flex-direction: column; gap: 1.5rem; margin-bottom: 2rem; }
+.segment p {
+  font-size: 1.05rem;
+  line-height: 1.85;
+  white-space: pre-wrap;   /* preserve paragraph breaks from generated text */
+  word-break: break-word;
+}
+.segment-stream { min-height: 1.5em; font-size: 1.05rem; line-height: 1.85; white-space: pre-wrap; }
+.generation-indicator { display: flex; align-items: center; gap: 0.75rem; color: var(--muted);
+  font-size: 0.9rem; padding: 1rem 0; }
+.spinner { width: 1rem; height: 1rem; border: 2px solid var(--line);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.choice-panel { border: 1px solid var(--line); border-radius: 0.75rem;
+  padding: 1.25rem; margin-block: 1.5rem; background: var(--surface); }
+.choice-reason { color: var(--muted); font-size: 0.9rem; margin-bottom: 1rem; }
+.choice-options { display: flex; flex-direction: column; gap: 0.625rem; margin-bottom: 1rem; }
+.choice-option-btn { text-align: left; }
+.custom-action-row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+.custom-action-input { flex: 1; padding: 0.5rem 0.75rem; border: 1px solid var(--line);
+  border-radius: 0.375rem; font-size: 0.875rem; }
+.reader-controls { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 2rem; }
+.reader-error { color: var(--danger); padding: 0.75rem 1rem; border: 1px solid var(--danger);
+  border-radius: 0.5rem; background: #fff5f5; margin-bottom: 1rem; }
+.reader-error-state { padding: 1.5rem; text-align: center; }
+.branch-nav { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.branch-link { font-size: 0.8rem; color: var(--muted); padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line); border-radius: 0.25rem; }
+.branch-link.is-active { color: var(--accent); border-color: var(--accent); }
+
+/* ── js-generated loading indicator ── */
+.reader-generating { display: flex; align-items: center; gap: 0.5rem;
+  color: var(--muted); font-size: 0.85rem; padding: 0.75rem 0; }
+
 [hidden] { display: none !important; }
 
 @media (max-width: 720px) {
