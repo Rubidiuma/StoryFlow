@@ -1,7 +1,10 @@
 """Structured generation and validation for initial story Bibles."""
 
 import json
+import logging
 from uuid import UUID
+
+_log = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -106,7 +109,11 @@ async def generate_validated_bible(
             return GeneratedBiblePayload.model_validate(response)
         except (TimeoutError, LLMRequestError) as exc:
             raise BibleGenerationRequestError("Bible generation request failed") from exc
-        except (json.JSONDecodeError, InvalidStructuredResponseError, ValidationError):
+        except (json.JSONDecodeError, InvalidStructuredResponseError) as exc:
+            _log.warning("Bible JSON parse failed: %s", exc)
+            continue
+        except ValidationError as exc:
+            _log.warning("Bible validation failed: %s", exc)
             continue
     raise BibleGenerationValidationError("invalid structured Bible response")
 

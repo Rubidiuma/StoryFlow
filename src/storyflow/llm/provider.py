@@ -79,7 +79,7 @@ class ProviderLLMClient:
         text = next(
             (block.text for block in response.content if block.type == "text"), ""
         )
-        _log.debug("Raw LLM response (%d chars): %.300s", len(text), text)
+        _log.warning("LLM raw response (%d chars): %.600s", len(text), text)
 
         # Strip markdown code fences if present
         stripped = text.strip()
