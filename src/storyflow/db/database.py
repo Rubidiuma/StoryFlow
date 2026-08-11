@@ -1,3 +1,4 @@
+from __future__ import annotations
 """SQLite connection and transaction management."""
 import sqlite3
 from collections.abc import Iterator

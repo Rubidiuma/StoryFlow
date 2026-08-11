@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Deterministic single-scene generation coordinator."""
 
 import asyncio

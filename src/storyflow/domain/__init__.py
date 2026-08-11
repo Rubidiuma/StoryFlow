@@ -22,7 +22,7 @@ from storyflow.domain.models import (
     StoryConfig,
     StorySegment,
 )
-from storyflow.domain.state_machine import InvalidTransitionError, StoryStateMachine
+from storyflow.domain.state_machine import InvalidTransitionError, StoryStateMachine, transition
 
 __all__ = [
     "Branch",
@@ -45,4 +45,5 @@ __all__ = [
     "StoryStateMachine",
     "StoryStatus",
     "StoryStructure",
+    "transition",
 ]

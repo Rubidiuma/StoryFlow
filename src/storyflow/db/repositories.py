@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Persistence operations for StoryFlow's Pydantic domain models."""
 import sqlite3
 from datetime import UTC, datetime

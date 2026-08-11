@@ -1,7 +1,14 @@
+from __future__ import annotations
 """Domain models for StoryFlow per SPEC §8."""
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Self
 from uuid import UUID, uuid4
+
+# Python 3.9 compatibility
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 

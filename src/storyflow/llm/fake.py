@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Deterministic LLM implementation for tests and local development."""
 
 import json

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Stable, non-sensitive API error payloads."""
 
 from typing import Final

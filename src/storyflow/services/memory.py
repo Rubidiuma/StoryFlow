@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Pure parsing and application of structured story memory updates."""
 
 from collections.abc import Mapping

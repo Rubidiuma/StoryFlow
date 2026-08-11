@@ -1,3 +1,4 @@
+from __future__ import annotations
 """FastAPI application entry point."""
 
 from collections.abc import AsyncIterator

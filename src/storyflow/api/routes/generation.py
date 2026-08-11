@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Versioned server-sent events for one deterministic scene generation."""
 
 import asyncio

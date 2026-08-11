@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Pure policy for deciding whether a model choice suggestion may be shown."""
 
 from collections.abc import Mapping
