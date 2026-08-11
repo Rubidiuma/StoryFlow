@@ -3,12 +3,67 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sqlite3
 from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
+
+_log = logging.getLogger(__name__)
+
+# Valid ChoiceType enum values and valid effect field keys
+_VALID_CHOICE_TYPES = {"decision", "action", "dialogue"}
+_VALID_EFFECT_KEYS = {"route_change", "information_state", "character_state", "relationship_change"}
+
+
+def _normalize_director_response(response: dict[str, Any]) -> dict[str, Any]:
+    """Normalize model output to match ScenePlan/ChoicePoint domain schema.
+
+    Handles common LLM deviations:
+    - Unknown choice type names → mapped to 'decision'
+    - 'structured_effects' key → renamed to 'effects'
+    - Effect dicts with unknown keys → mapped to route_change fallback
+    """
+    result = dict(response)
+    cs = result.get("choice_suggestion")
+    if not isinstance(cs, dict):
+        return result
+
+    cs = dict(cs)
+
+    # 1. Normalize choice type
+    if cs.get("type") not in _VALID_CHOICE_TYPES:
+        cs["type"] = "decision"
+
+    # 2. Normalize options
+    if isinstance(cs.get("options"), list):
+        normalized: list[dict[str, Any]] = []
+        for opt in cs["options"]:
+            if not isinstance(opt, dict):
+                continue
+            opt = dict(opt)
+            # Rename structured_effects → effects
+            if "structured_effects" in opt and "effects" not in opt:
+                opt["effects"] = opt.pop("structured_effects")
+            # Ensure effects is a non-empty dict with only valid keys
+            raw = opt.get("effects", {})
+            if not isinstance(raw, dict) or not raw:
+                opt["effects"] = {"route_change": opt.get("text", "continue")[:60]}
+            else:
+                valid_effects = {k: v for k, v in raw.items() if k in _VALID_EFFECT_KEYS}
+                if not valid_effects:
+                    # Fallback: convert first value to route_change string
+                    first = next(iter(raw.values()), "continue")
+                    opt["effects"] = {"route_change": str(first)[:60]}
+                else:
+                    opt["effects"] = valid_effects
+            normalized.append(opt)
+        cs["options"] = normalized
+
+    result["choice_suggestion"] = cs
+    return result
 
 from pydantic import ValidationError
 
@@ -232,18 +287,20 @@ class GenerationService:
 
     async def _generate_plan(self, context: Mapping[str, object]) -> ScenePlan | None:
         """Validate a Director response, retrying one structural failure only."""
-        import logging
-        _log = logging.getLogger(__name__)
         for attempt in range(2):
             try:
-                response = await self.llm_client.generate_json(
+                raw = await self.llm_client.generate_json(
                     prompt=DIRECTOR_PROMPT_V1,
                     context=context,
                 )
+                response = _normalize_director_response(raw)
                 return ScenePlan.model_validate(response)
             except (json.JSONDecodeError, InvalidStructuredResponseError, ValidationError) as exc:
-                _log.warning("Director attempt %d failed validation: %s | response keys: %s",
-                             attempt + 1, exc, list(response.keys()) if isinstance(response, dict) else "N/A")
+                _log.warning(
+                    "Director attempt %d failed validation: %s | keys: %s",
+                    attempt + 1, exc,
+                    list(response.keys()) if isinstance(response, dict) else "N/A",
+                )
                 continue
             except (TimeoutError, LLMRequestError) as exc:
                 raise _DirectorRequestFailure from exc
