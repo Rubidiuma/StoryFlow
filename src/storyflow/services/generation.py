@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -53,7 +53,11 @@ class GenerationService:
         self.repository = repository
         self.llm_client = llm_client
 
-    async def generate(self, request: GenerationRequest) -> GenerationResult:
+    async def generate(
+        self,
+        request: GenerationRequest,
+        on_delta: Callable[[str], Awaitable[None]] | None = None,
+    ) -> GenerationResult:
         """Generate and commit at most one complete scene."""
         existing = self.repository.get_segment_by_generation_key(request.generation_key)
         if existing is not None:
@@ -63,12 +67,15 @@ class GenerationService:
                     status=story.status if story is not None else StoryStatus.ERROR,
                     error_code="invalid_generation_state",
                 )
-            return GenerationResult(
+            result = GenerationResult(
                 status=story.status if story is not None else StoryStatus.ERROR,
                 segment=existing,
                 choice_point=self.repository.get_choice_point_for_segment(existing.id),
                 content=existing.content,
             )
+            if on_delta is not None and existing.content:
+                await on_delta(existing.content)
+            return result
 
         story = self.repository.get_story(request.story_id)
         branch = self.repository.get_branch(request.branch_id)
@@ -112,6 +119,8 @@ class GenerationService:
                 context=writer_context,
             ):
                 chunks.append(chunk)
+                if on_delta is not None and chunk:
+                    await on_delta(chunk)
         except Exception:  # noqa: BLE001 - provider exceptions are redacted at this boundary
             return GenerationResult(status=StoryStatus.ERROR, error_code="writer_failed")
 
