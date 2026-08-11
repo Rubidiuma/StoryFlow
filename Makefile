@@ -24,7 +24,7 @@ typecheck:
 	UV_CACHE_DIR=.uv-cache uv run --extra dev mypy src tests || mypy src tests --ignore-missing-imports
 
 run:
-	UV_CACHE_DIR=.uv-cache uv run uvicorn storyflow.main:app --host 127.0.0.1 --port 8000 || PYTHONPATH=src python3 -m uvicorn storyflow.main:app --reload
+	UV_CACHE_DIR=.uv-cache uv run uvicorn storyflow.main:app --host 127.0.0.1 --port 8000 --log-level debug || PYTHONPATH=src python3 -m uvicorn storyflow.main:app --reload --log-level debug
 
 install:
 	pip install -e .
