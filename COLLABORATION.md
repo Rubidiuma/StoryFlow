@@ -15,13 +15,13 @@
   - **T10：** 并发恢复保障 + 幂等生成
   - 提交：`1c62e99`（merge commit），包含 Codex 的 9 个主要提交
 
-### 🚀 Claude 现在启动
-- ✅ **PR-01～PR-04 已稳定** - 186 个测试全部通过
-- 🚧 **PR-05 已准备** - `.worktrees/feature-choice-branch` worktree 已创建
-  - 待启动：T11-T13（选择与分支管理）
-  - **T11：** 预设与自定义选择
-  - **T12：** 分支与记忆快照恢复
-  - **T13：** 动态故事弧与摘要
+### 🎉 PR-05 完成并提交
+- ✅ **PR-01～PR-05 全部稳定** - 221 个测试全部通过
+- ✅ **PR-05（T11-T13）完成** - Claude 交付
+  - **T11：** 预设与自定义选择（9 测试）
+  - **T12：** 分支与记忆快照恢复（6 测试）
+  - **T13：** 动态故事弧与摘要（20 测试）
+  - 提交：`e7b6fab` (feature/choice-branch)
 
 ### ✅ 已解决的问题
 - ✅ PR-04 与 main 的合并冲突（Makefile、pyproject.toml、domain/__init__.py、PLAN.md）
@@ -30,8 +30,8 @@
 - ✅ 所有测试恢复通过（186/186 ✓）
 
 ### 待做工作
-- **PR-05 实现（T11-T13）** → 选择与分支管理 [Claude 现在启动]
-- **PR-06 实现（T14-T16）** → Web UI [Codex 可同时启动或待 PR-05 merge 后]
+- **PR-05 merge 到 main** → 当前在 `feature/choice-branch`，需人工 merge
+- **PR-06 实现（T14-T16）** → Web UI [Codex 可从 main 合并 PR-05 后启动]
 - **PR-07 实现（T17-T20）** → 安全、脱敏、导出
 - **PR-08 完成（T21-T24）** → 测试、Docker、CI/CD、部署
 
