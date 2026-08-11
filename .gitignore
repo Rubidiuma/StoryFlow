@@ -27,3 +27,8 @@ secrets/
 .DS_Store
 .idea/
 .vscode/
+
+# Homework request files (local only)
+Requst/
+suggestionFromClaude.md
+*.local.json
