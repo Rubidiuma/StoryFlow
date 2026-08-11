@@ -64,6 +64,18 @@ def create_app(
     return app
 
 
+def _build_repository() -> StoryRepository:
+    """Open (and initialize if needed) the SQLite database from STORYFLOW_DB_PATH."""
+    from pathlib import Path
+    from storyflow.db.database import Database
+    default_db = "/data/storyflow.sqlite3" if os.path.isdir("/data") else "storyflow.sqlite3"
+    db_path = Path(os.getenv("STORYFLOW_DB_PATH", default_db))
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    database = Database(db_path)
+    database.initialize()
+    return StoryRepository(database)
+
+
 def _build_llm_client() -> LLMClient | None:
     """Create the real LLM client from environment or secret file credentials."""
     from pathlib import Path
@@ -77,4 +89,7 @@ def _build_llm_client() -> LLMClient | None:
     return ProviderLLMClient(api_key=api_key)
 
 
-app = create_app(llm_client=_build_llm_client())
+app = create_app(
+    repository=_build_repository(),
+    llm_client=_build_llm_client(),
+)
