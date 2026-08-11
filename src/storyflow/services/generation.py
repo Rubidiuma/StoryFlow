@@ -180,6 +180,8 @@ class GenerationService:
                 continue
             except (TimeoutError, LLMRequestError) as exc:
                 raise _DirectorRequestFailure from exc
+            except Exception as exc:
+                raise _DirectorRequestFailure from exc
         return None
 
     @staticmethod

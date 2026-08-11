@@ -536,6 +536,50 @@ async def test_director_request_exception_is_redacted_and_does_not_mutate_inputs
 
 
 @pytest.mark.asyncio
+async def test_unexpected_director_exception_is_classified_and_redacted(
+    tmp_path: Path,
+) -> None:
+    """An untyped provider crash must not escape the stable GenerationResult boundary."""
+    database, repository, story, branch = make_runtime(tmp_path)
+    story_before = story.model_dump(mode="json")
+    llm_client = FakeLLMClient(
+        json_responses=[RuntimeError("unexpected provider secret=director-crash-secret")]
+    )
+
+    result = await GenerationService(repository, llm_client).generate(
+        GenerationRequest(
+            story_id=story.id,
+            branch_id=branch.id,
+            generation_key="unexpected-director-failed",
+            context={"private_prompt": "must-not-leak"},
+        )
+    )
+
+    assert result.status is StoryStatus.ERROR
+    assert result.error_code == "director_failed"
+    assert result.segment is None
+    assert result.choice_point is None
+    assert result.content == ""
+    assert "director-crash-secret" not in result.error_code
+    assert "must-not-leak" not in result.error_code
+    assert [call["operation"] for call in llm_client.calls] == ["generate_json"]
+    persisted = repository.get_story(story.id)
+    assert persisted is not None
+    assert persisted.model_dump(mode="json") == story_before
+    with database.read() as connection:
+        counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("story_segments", "choice_points", "choice_options", "generation_events")
+        }
+    assert counts == {
+        "story_segments": 0,
+        "choice_points": 0,
+        "choice_options": 0,
+        "generation_events": 0,
+    }
+
+
+@pytest.mark.asyncio
 async def test_late_commit_failure_rolls_back_story_state_scene_and_branch_head(
     tmp_path: Path,
 ) -> None:
