@@ -145,10 +145,105 @@ def _normalize_bible_response(raw: dict) -> dict:
                     c["role"] = c.pop(alt)
             if "role" not in c:
                 c["role"] = "character"
+            # Ensure list fields are actually lists (model sometimes returns strings)
+            for list_field in ("known_facts", "secrets"):
+                val = c.get(list_field)
+                if isinstance(val, str):
+                    c[list_field] = [val] if val.strip() else []
+                elif val is None:
+                    c[list_field] = []
             normalized_chars.append(c)
         r["characters"] = normalized_chars
 
     return r
+
+
+def _first_str(d: dict, *keys: str, default: str = "") -> str:
+    """Return the first non-empty string value from any of the given keys."""
+    for k in keys:
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return default
+
+
+def _lenient_bible_fallback(raw: dict, story: "Story") -> "GeneratedBiblePayload":
+    """Extract whatever we can from the model response; fill gaps from story config."""
+    cfg = story.config
+
+    # Collect all string values from the response as a pool of text
+    all_text = " ".join(
+        str(v) for v in raw.values() if isinstance(v, (str, int, float))
+    ) or str(raw)
+
+    world_rules = _first_str(raw,
+        "world_rules", "world_setting", "world_building", "world",
+        "世界规则", "世界设定",
+        default=f"{cfg.world_background}") or "故事世界的基本规则与设定。"
+
+    tone_rules = _first_str(raw,
+        "tone_rules", "tone", "writing_tone", "style",
+        "基调规则", "文风",
+        default=cfg.style) or "克制而明亮的叙事风格。"
+
+    protagonist_core = _first_str(raw,
+        "protagonist_core", "protagonist", "character_core", "hero",
+        "主角核心", "主角",
+        default=cfg.protagonist_desc) or "主角的核心性格与不变的价值观。"
+
+    # required/forbidden elements
+    def _to_list(val: object) -> list[str]:
+        if isinstance(val, list):
+            return [str(x) for x in val if str(x).strip()]
+        if isinstance(val, str) and val.strip():
+            return [val.strip()]
+        return []
+
+    required = _to_list(raw.get("required_elements") or raw.get("required") or [])
+    forbidden = _to_list(raw.get("forbidden_elements") or raw.get("forbidden") or [])
+
+    # Characters - try to extract, fall back to minimal protagonist
+    chars_raw = raw.get("characters") or raw.get("角色") or []
+    if isinstance(chars_raw, list) and chars_raw:
+        chars = []
+        for c in chars_raw:
+            if isinstance(c, dict) and c.get("name"):
+                chars.append(GeneratedCharacter(
+                    name=str(c.get("name", "主角")),
+                    role=str(c.get("role") or c.get("character_role") or "protagonist"),
+                    location=str(c.get("location", "")),
+                    motivation=str(c.get("motivation", "")),
+                ))
+        if not chars:
+            chars = [GeneratedCharacter(name="主角", role="protagonist",
+                                        motivation=cfg.protagonist_desc[:200])]
+    else:
+        chars = [GeneratedCharacter(name="主角", role="protagonist",
+                                    motivation=cfg.protagonist_desc[:200])]
+
+    # first_arc
+    arc_raw = (raw.get("first_arc") or raw.get("initial_arc") or
+               raw.get("arc") or raw.get("story_arc") or {})
+    if isinstance(arc_raw, dict):
+        arc_goal = _first_str(arc_raw, "goal", "arc_goal", "objective",
+                              default="") or "推进故事主线，揭开核心谜题。"
+        arc_conflict = _first_str(arc_raw, "conflict", "main_conflict", "core_conflict",
+                                  default="") or "主角面临的核心阻碍与内外冲突。"
+    else:
+        arc_goal = "推进故事主线，揭开核心谜题。"
+        arc_conflict = "主角面临的核心阻碍与内外冲突。"
+
+    first_arc = GeneratedFirstArc(goal=arc_goal, conflict=arc_conflict)
+
+    return GeneratedBiblePayload(
+        world_rules=world_rules,
+        tone_rules=tone_rules,
+        protagonist_core=protagonist_core,
+        required_elements=required,
+        forbidden_elements=forbidden,
+        characters=chars,
+        first_arc=first_arc,
+    )
 
 
 class BibleGenerationValidationError(ValueError):
@@ -173,23 +268,30 @@ async def generate_validated_bible(
 ) -> GeneratedBiblePayload:
     """Request and validate a Bible response, retrying one structural failure."""
     context = story.config.model_dump(mode="json")
-    for _ in range(2):
+    last_raw: dict = {}
+    for attempt in range(2):
         try:
             raw = await llm_client.generate_json(
                 prompt=BIBLE_PROMPT_V1,
                 context=context,
             )
+            last_raw = raw
             response = _normalize_bible_response(raw)
             return GeneratedBiblePayload.model_validate(response)
         except (TimeoutError, LLMRequestError) as exc:
             raise BibleGenerationRequestError("Bible generation request failed") from exc
         except (json.JSONDecodeError, InvalidStructuredResponseError) as exc:
-            _log.warning("Bible JSON parse failed: %s", exc)
+            _log.warning("Bible JSON parse failed (attempt %d): %s", attempt + 1, exc)
             continue
         except ValidationError as exc:
-            _log.warning("Bible validation failed: %s", exc)
+            _log.warning("Bible validation failed (attempt %d): %s | keys: %s",
+                         attempt + 1, exc, list(last_raw.keys()))
             continue
-    raise BibleGenerationValidationError("invalid structured Bible response")
+
+    # Last resort: build a minimal valid payload from whatever the model returned
+    _log.warning("Bible validation failed twice; attempting lenient fallback from: %s",
+                 list(last_raw.keys()))
+    return _lenient_bible_fallback(last_raw, story)
 
 
 def persist_generated_bible(

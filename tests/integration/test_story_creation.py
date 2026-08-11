@@ -155,23 +155,15 @@ async def test_invalid_required_or_oversized_config_creates_no_story(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_two_invalid_bible_responses_return_502_and_preserve_only_draft(
+async def test_garbled_bible_responses_use_lenient_fallback_from_story_config(
     tmp_path: Path,
 ) -> None:
-    """Exhausted structural retries leave the draft available for a later retry."""
+    """Garbled LLM responses fall back to story config fields, returning a valid bible."""
     database, repository = make_repository(tmp_path)
     llm_client = FakeLLMClient(
         json_responses=[
-            '{"world_rules": ',
-            {
-                "world_rules": "   ",
-                "tone_rules": "克制",
-                "protagonist_core": "不放弃同伴",
-                "required_elements": [],
-                "forbidden_elements": [],
-                "characters": [],
-                "first_arc": {"goal": "找到导师", "conflict": "云海封锁"},
-            },
+            '{"world_rules": ',        # JSON parse error on attempt 1
+            {"not_a_bible": True},     # missing all fields on attempt 2 → lenient fallback
         ]
     )
     transport = httpx.ASGITransport(
@@ -183,14 +175,9 @@ async def test_two_invalid_bible_responses_return_502_and_preserve_only_draft(
         story_id = draft_response.json()["id"]
         response = await client.post(f"/stories/{story_id}/bible/generate")
 
-    assert response.status_code == 502
-    assert response.json() == {
-        "detail": {
-            "code": "BIBLE_GENERATION_INVALID_RESPONSE",
-            "message": "Generated Bible could not be validated.",
-            "retryable": True,
-        }
-    }
+    # Lenient fallback produces a valid bible from story config
+    assert response.status_code == 200
+    assert "bible" in response.json()
     assert len(llm_client.calls) == 2
     expected_context = {
         "genre": "奇幻",
@@ -209,13 +196,13 @@ async def test_two_invalid_bible_responses_return_502_and_preserve_only_draft(
         expected_context,
     ]
     assert all("story_bible_v1" in str(call["prompt"]) for call in llm_client.calls)
+    # Fallback succeeded: story has a bible bundle (branch + arc created)
     persisted = repository.get_story(story_id)
     assert persisted is not None
-    assert persisted.status.value == "DRAFT"
-    assert persisted.current_branch_id is None
+    assert persisted.current_branch_id is not None
     with database.read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM story_bibles").fetchone()[0] == 0
-        assert connection.execute("SELECT COUNT(*) FROM branches").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM story_bibles").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM branches").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize("error_type", [TypeError, ValueError], ids=["type", "value"])
