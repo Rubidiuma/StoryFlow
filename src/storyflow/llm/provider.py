@@ -22,10 +22,29 @@ _MAX_TOKENS_STREAM = 2048
 class ProviderLLMClient:
     """Anthropic API adapter implementing the LLMClient protocol."""
 
-    def __init__(self, api_key: str, *, model: str = _DEFAULT_MODEL) -> None:
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model: str = _DEFAULT_MODEL,
+        base_url: str | None = None,
+    ) -> None:
+        kwargs: dict = {}
+        if base_url:
+            kwargs["base_url"] = base_url
+        # Poe and some proxies use Bearer auth; Anthropic uses x-api-key.
+        # Use auth_token for Bearer, api_key for x-api-key.
+        if base_url and "poe.com" in base_url:
+            kwargs["auth_token"] = api_key
+        else:
+            kwargs["api_key"] = api_key
+        self._client = anthropic.AsyncAnthropic(**kwargs)
         self._model = model
-        _log.info("ProviderLLMClient initialized with model=%s", model)
+        _log.info(
+            "ProviderLLMClient initialized: model=%s base_url=%s",
+            model,
+            base_url or "(default)",
+        )
 
     async def generate_json(
         self, *, prompt: str, context: Mapping[str, Any]
