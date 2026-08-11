@@ -1,2 +1,29 @@
 .claude/worktrees/
 .worktrees/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.uv-cache/
+.venv/
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Credentials and local environment configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Editor files
+.DS_Store
+.idea/
+.vscode/

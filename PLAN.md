@@ -2,7 +2,7 @@
 
 > 对应规约：`SPEC.md`  
 > 方法：Superpowers `writing-plans` → 冷启动验证 → worktree + subagent → TDD → 两阶段评审  
-> 状态：待冷启动验证  
+> 状态：PR-01 的 T01～T03 已完成并通过整分支终审
 > 目标周期：10 天
 
 ## 1. 计划使用规则
@@ -123,13 +123,12 @@ storyflow/
 
 ### CS-01 使用陌生 Agent 验证 SPEC / PLAN
 
-**状态：** `[x]` **完成于 2026-08-07**  
+**状态：** `[x]`
 **预计：** 1～2 小时  
-**实际：** 35 分钟  
-**工作区：** `.claude/worktrees/coldstart-validation`  
+**工作区：** `.claude/worktrees/coldstart-validation`
 **分支：** `coldstart/spec-plan-validation`  
 **依赖：** 无  
-**产物：** `SPEC_PROCESS.md` 中的冷启动记录；无需修订 SPEC / PLAN（验证通过）
+**产物：** `SPEC_PROCESS.md` 中的冷启动记录；必要的 `SPEC.md` / `PLAN.md` 修订
 
 **Agent 选择要求：** 与主开发 Agent 类型不同；启动全新 session；不导入历史会话或 memory。
 
@@ -143,13 +142,13 @@ storyflow/
 
 - [x] 创建独立 worktree 和全新 Agent session。
 - [x] 只向 Agent 提供 `SPEC.md`、`PLAN.md` 和上述指令。
-- [x] 记录 Agent 首次暂停位置和所有问题，不补充口头解释。
-- [x] 记录其对状态机、选择频率或数据结构的不同解读。
+- [x] 检查保存的最终报告中的阻塞问题；完整对话与暂停轨迹未被可靠保留，因此不记录暂停或提问次数。
+- [x] 检查最终报告中的不同解读；报告未列阻塞性误读，自定义行动解析延后至服务层的结论与规约一致。
 - [x] 对照预期判断问题来自规约缺陷还是 Agent 误读。
 - [x] 保存其失败测试、代码草稿和验证结果作为证据。
-- [x] 在 `SPEC_PROCESS.md` 写入修订前后的关键 diff。
-- [x] 修改 `SPEC.md` / `PLAN.md` 中暴露出的歧义（无需修改，验证通过）。
-- [x] 丢弃或保留冷启动 worktree，并记录决定和理由。
+- [x] 在 `SPEC_PROCESS.md` 写入修订前后的关键文档更正。
+- [x] 修改 `SPEC.md` / `PLAN.md` 中暴露出的歧义（未修改 SPEC 产品规则；本次修正工作区路径与文档记录不一致）。
+- [x] 保留冷启动 worktree 及分支作为证据；其分支仍指向 `010c021`，不能作为 `9bc5df8` 的提交谱系。
 - [x] 人工确认规约足以进入正式实现。
 
 **验证：**
@@ -193,9 +192,9 @@ CS-01 → PR-01 → ┬→ PR-02 ─┐
 | T05 | 故事创建与故事圣经 | P0 | `[x]` | 46b4ab7 |
 | T06 | 选择点策略 | P0 | `[x]` | 1ef192e |
 | T07 | 上下文预算与分层记忆 | P1 | `[x]` | 1c5b7d9 |
-| T08 | 生成状态协调器 | P0 | `[-]` | — |
-| T09 | 流式生成接口 | P0 | `[ ]` | — |
-| T10 | 幂等、断线与恢复 | P0 | `[ ]` | — |
+| T08 | 生成状态协调器 | P0 | `[x]` | 8f9e444 |
+| T09 | 流式生成接口 | P0 | `[x]` | a789a4d |
+| T10 | 幂等、断线与恢复 | P0 | `[x]` | 9fddce8 |
 | T11 | 预设与自定义选择 | P0 | `[ ]` | — |
 | T12 | 分支与记忆快照恢复 | P1 | `[ ]` | — |
 | T13 | 动态故事弧与摘要 | P1 | `[ ]` | — |
@@ -211,7 +210,7 @@ CS-01 → PR-01 → ┬→ PR-02 ─┐
 | T23 | GitLab CI 与 secret scan | 必做 | `[ ]` | — |
 | T24 | 部署、README 与最终验收 | 必做 | `[ ]` | — |
 
-**进度汇总：** 7/24 任务完成（29%），7个 P0 任务完成，1个 P1 任务完成
+**进度汇总：** 10/24 任务完成（42%），10个 P0 任务完成，0个 P1 任务完成 | **PR-04（T08-T10）由 Codex 完成并已合并**
 
 ## 6. 详细实现任务
 
@@ -228,16 +227,16 @@ CS-01 → PR-01 → ┬→ PR-02 ─┐
 
 **步骤：**
 
-- [ ] 创建 `tests/unit/test_health.py`，断言状态码和固定字段。
-- [ ] 运行单测并保存 import/route 缺失的红色结果。
-- [ ] 创建 `pyproject.toml`，声明 FastAPI、Uvicorn、pytest、httpx、ruff、mypy。
-- [ ] 创建 `src/storyflow/main.py` 的应用工厂和 `/health`。
-- [ ] 创建最小 `config.py`，只读取非敏感运行配置。
-- [ ] 增加 `Makefile` 的 `test`、`lint`、`typecheck`、`run`。
-- [ ] 添加 Python、数据库、密钥、编辑器文件的 `.gitignore` 规则。
-- [ ] 运行目标测试使其变绿。
-- [ ] 运行 ruff 与 mypy，修复最小问题。
-- [ ] 两阶段评审并更新日志。
+- [x] 创建 `tests/unit/test_health.py`，断言状态码和固定字段。
+- [x] 运行单测并保存 import/route 缺失的红色结果。
+- [x] 创建 `pyproject.toml`，声明 FastAPI、Uvicorn、pytest、httpx、ruff、mypy。
+- [x] 创建 `src/storyflow/main.py` 的应用工厂和 `/health`。
+- [x] 创建最小 `config.py`，只读取非敏感运行配置。
+- [x] 增加 `Makefile` 的 `test`、`lint`、`typecheck`、`run`。
+- [x] 添加 Python、数据库、密钥、编辑器文件的 `.gitignore` 规则。
+- [x] 运行目标测试使其变绿。
+- [x] 运行 ruff 与 mypy，修复最小问题。
+- [x] 两阶段评审并更新日志。
 
 **验证：**
 
@@ -263,16 +262,16 @@ make typecheck
 
 **步骤：**
 
-- [ ] 先写状态枚举和非法转换测试。
-- [ ] 运行测试确认模型/状态机缺失。
-- [ ] 实现 `StoryStatus` 与转换表。
-- [ ] 写合法转换测试并确认失败。
-- [ ] 实现纯函数 `transition(current, event)`。
-- [ ] 为故事配置、场景计划、选择点写边界测试。
-- [ ] 实现对应 Pydantic 模型和验证器。
-- [ ] 增加三个选项必须唯一且 effect 非空的测试。
-- [ ] 实现最少校验逻辑。
-- [ ] 运行全部领域测试并重构重复 fixture。
+- [x] 先写状态枚举和非法转换测试。
+- [x] 运行测试确认模型/状态机缺失。
+- [x] 实现 `StoryStatus` 与转换表。
+- [x] 写合法转换测试并确认失败。
+- [x] 实现纯函数 `transition(current, target)`。
+- [x] 为故事配置、场景计划、选择点写边界测试。
+- [x] 实现对应 Pydantic 模型和验证器。
+- [x] 增加三个选项必须唯一且 effect 非空的测试。
+- [x] 实现最少校验逻辑。
+- [x] 运行全部领域测试并重构重复 fixture。
 
 **验证：**
 
@@ -296,16 +295,16 @@ pytest -q tests/unit/test_state_machine.py tests/unit/test_domain_models.py
 
 **步骤：**
 
-- [ ] 写临时 SQLite fixture 和 schema 初始化失败测试。
-- [ ] 增加 Story 创建/读取测试并确认失败。
-- [ ] 编写最小 `schema.sql` 与连接生命周期。
-- [ ] 实现 Story/Bible 仓储使第一组测试变绿。
-- [ ] 写 Segment 幂等和外键测试并确认失败。
-- [ ] 实现 Segment、Choice、Event 原子提交。
-- [ ] 写 Branch/MemorySnapshot 路径恢复测试并确认失败。
-- [ ] 实现分支和快照仓储。
-- [ ] 启用 WAL、foreign_keys 和事务回滚。
-- [ ] 运行集成测试并检查无临时数据库残留。
+- [x] 写临时 SQLite fixture 和 schema 初始化失败测试。
+- [x] 增加 Story 创建/读取测试并确认失败。
+- [x] 编写最小 `schema.sql` 与连接生命周期。
+- [x] 实现 Story/Bible 仓储使第一组测试变绿。
+- [x] 写 Segment 幂等和外键测试并确认失败。
+- [x] 实现 Segment、Choice、Event 原子提交。
+- [x] 写 Branch/MemorySnapshot 路径恢复测试并确认失败。
+- [x] 实现分支和快照仓储。
+- [x] 启用 WAL、foreign_keys 和事务回滚。
+- [x] 运行集成测试并检查无临时数据库残留。
 
 **验证：**
 
@@ -1045,4 +1044,3 @@ git status --short
 - [ ] 1500～2500 字本人反思 `REFLECTION.md`
 - [ ] 完整 commit / worktree / PR 历史
 - [ ] 无真实凭据和敏感日志
-
