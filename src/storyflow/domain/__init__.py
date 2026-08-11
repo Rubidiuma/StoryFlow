@@ -1,6 +1,6 @@
 """Domain models and state machine for StoryFlow."""
 
-from .enums import StoryStatus, ChoiceFrequency, ConfigGenre, ConfigStructure, ForeshadowingStatus
+from .enums import StoryStatus, ChoiceFrequency, Genre, StoryStructure, ChoiceType
 from .models import (
     Story,
     StoryConfig,
@@ -13,15 +13,15 @@ from .models import (
     Branch,
     MemorySnapshot,
 )
-from .state_machine import StoryStateMachine, StateTransitionEvent
+from .state_machine import StoryStateMachine
 
 __all__ = [
     # Enums
     "StoryStatus",
     "ChoiceFrequency",
-    "ConfigGenre",
-    "ConfigStructure",
-    "ForeshadowingStatus",
+    "Genre",
+    "StoryStructure",
+    "ChoiceType",
     # Models
     "Story",
     "StoryConfig",
@@ -35,5 +35,4 @@ __all__ = [
     "MemorySnapshot",
     # State Machine
     "StoryStateMachine",
-    "StateTransitionEvent",
 ]
