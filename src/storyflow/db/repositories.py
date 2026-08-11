@@ -1,8 +1,12 @@
 from __future__ import annotations
+
 """Persistence operations for StoryFlow's Pydantic domain models."""
 import sqlite3
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from uuid import UUID
+from typing import Literal
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel
 
@@ -20,6 +24,7 @@ from storyflow.domain.models import (
     StorySegment,
 )
 from storyflow.domain.state_machine import InvalidTransitionError, transition
+from storyflow.services.memory import MemoryService
 
 
 class StoryNotFoundError(LookupError):
@@ -32,6 +37,39 @@ class IncompleteBibleBundleError(ValueError):
 
 class IllegalStoryStateError(ValueError):
     """The current story state cannot be confirmed."""
+
+
+class ChoiceNotFoundError(LookupError):
+    """The requested choice point does not exist."""
+
+
+class InvalidChoiceStateError(ValueError):
+    """A choice cannot be submitted from the current story or branch state."""
+
+
+class ChoiceVersionConflictError(ValueError):
+    """A choice submission names an obsolete or future version."""
+
+
+class ChoiceOptionNotFoundError(ValueError):
+    """A preset submission names no option from this choice point."""
+
+
+class InvalidChoiceEffectsError(ValueError):
+    """Normalized choice effects cannot be applied to current memory."""
+
+
+class ChoiceNotSelectedError(ValueError):
+    """A fork cannot be created from a choice that has not been selected."""
+
+
+@dataclass(frozen=True, slots=True)
+class ChoiceSubmissionResult:
+    """Persisted outcome of one accepted or exactly replayed submission."""
+
+    status: Literal["success", "duplicate"]
+    choice: ChoicePoint
+    story: Story
 
 
 def _json(model: BaseModel) -> str:
@@ -63,6 +101,13 @@ class StoryRepository:
                 "SELECT payload FROM stories WHERE id = ?", (str(story_id),)
             ).fetchone()
         return Story.model_validate_json(row["payload"]) if row else None
+
+    def list_stories(self) -> list[Story]:
+        """Return the bookshelf ordered from most recently updated to oldest."""
+        with self.database.read() as connection:
+            rows = connection.execute("SELECT payload FROM stories").fetchall()
+        stories = [Story.model_validate_json(row["payload"]) for row in rows]
+        return sorted(stories, key=lambda story: story.updated_at, reverse=True)
 
     def recover_interrupted_generations(self) -> list[Story]:
         """Atomically mark persisted in-flight stories as interrupted once."""
@@ -492,6 +537,184 @@ class StoryRepository:
             ).fetchone()
         return ChoicePoint.model_validate_json(row["payload"]) if row else None
 
+    def get_choice_with_story(self, choice_id: UUID) -> tuple[ChoicePoint, Story] | None:
+        """Return a choice and its owning story for pre-provider validation."""
+        with self.database.read() as connection:
+            row = connection.execute(
+                """
+                SELECT choice_points.payload AS choice_payload,
+                       stories.payload AS story_payload
+                FROM choice_points
+                JOIN stories ON stories.id = choice_points.story_id
+                WHERE choice_points.id = ?
+                """,
+                (str(choice_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return (
+            ChoicePoint.model_validate_json(row["choice_payload"]),
+            Story.model_validate_json(row["story_payload"]),
+        )
+
+    def submit_choice(
+        self,
+        choice_id: UUID,
+        choice_version: int,
+        *,
+        option_id: UUID | None = None,
+        custom_action: str | None = None,
+        custom_effects: Mapping[str, object] | None = None,
+    ) -> ChoiceSubmissionResult:
+        """Atomically select a choice, append its memory snapshot, and resume the story."""
+        if (option_id is None) == (custom_action is None):
+            raise ValueError("exactly one preset option or custom action is required")
+        if custom_action is not None and custom_effects is None:
+            raise ValueError("custom effects are required for a custom action")
+
+        with self.database.transaction(immediate=True) as connection:
+            row = connection.execute(
+                """
+                SELECT choice_points.payload AS choice_payload,
+                       choice_points.segment_id,
+                       choice_points.story_id,
+                       story_segments.branch_id,
+                       stories.current_branch_id,
+                       stories.payload AS story_payload
+                FROM choice_points
+                JOIN story_segments ON story_segments.id = choice_points.segment_id
+                JOIN stories ON stories.id = choice_points.story_id
+                WHERE choice_points.id = ?
+                """,
+                (str(choice_id),),
+            ).fetchone()
+            if row is None:
+                raise ChoiceNotFoundError("choice does not exist")
+            choice = ChoicePoint.model_validate_json(row["choice_payload"])
+            story = Story.model_validate_json(row["story_payload"])
+
+            if choice.version != choice_version:
+                if _is_exact_choice_replay(
+                    choice,
+                    choice_version,
+                    option_id=option_id,
+                    custom_action=custom_action,
+                ):
+                    return ChoiceSubmissionResult(status="duplicate", choice=choice, story=story)
+                raise ChoiceVersionConflictError("choice version changed")
+            branch_row = connection.execute(
+                "SELECT head_segment_id FROM branches WHERE id = ? AND story_id = ?",
+                (row["branch_id"], row["story_id"]),
+            ).fetchone()
+            if (
+                story.status is not StoryStatus.WAITING_CHOICE
+                or story.current_branch_id is None
+                or str(story.current_branch_id) != row["branch_id"]
+                or row["current_branch_id"] != row["branch_id"]
+                or branch_row is None
+                or branch_row["head_segment_id"] != row["segment_id"]
+            ):
+                raise InvalidChoiceStateError("story is not waiting on this current choice")
+
+            if option_id is not None:
+                option = next(
+                    (candidate for candidate in choice.options if candidate.id == option_id),
+                    None,
+                )
+                if option is None:
+                    raise ChoiceOptionNotFoundError("option does not belong to choice")
+                selected_effects: Mapping[str, object] = option.effects
+            else:
+                assert custom_effects is not None
+                selected_effects = custom_effects
+
+            snapshot_row = connection.execute(
+                """
+                SELECT payload FROM memory_snapshots
+                WHERE branch_id = ? ORDER BY rowid DESC LIMIT 1
+                """,
+                (row["branch_id"],),
+            ).fetchone()
+            if snapshot_row is None:
+                character_rows = connection.execute(
+                    """
+                    SELECT payload FROM character_states
+                    WHERE story_id = ? AND branch_id = ? ORDER BY rowid
+                    """,
+                    (row["story_id"], row["branch_id"]),
+                ).fetchall()
+                base_snapshot = MemorySnapshot(
+                    story_id=story.id,
+                    branch_id=UUID(row["branch_id"]),
+                    segment_id=UUID(row["segment_id"]),
+                    characters=[
+                        CharacterState.model_validate_json(item["payload"])
+                        for item in character_rows
+                    ],
+                    context_version=0,
+                )
+            else:
+                base_snapshot = MemorySnapshot.model_validate_json(snapshot_row["payload"])
+            try:
+                updated_memory = MemoryService.apply_choice_effects(
+                    base_snapshot, selected_effects
+                ).model_copy(
+                    update={
+                        "id": uuid4(),
+                        "segment_id": UUID(row["segment_id"]),
+                    },
+                    deep=True,
+                )
+            except ValueError as exc:
+                raise InvalidChoiceEffectsError("choice effects are invalid") from exc
+
+            updated_choice = choice.model_copy(
+                update={
+                    "status": "selected",
+                    "selected_option_id": option_id,
+                    "selected_custom_action": custom_action,
+                    "selected_effects": dict(selected_effects),
+                    "version": choice.version + 1,
+                },
+                deep=True,
+            )
+            updated_story = story.model_copy(
+                update={
+                    "status": transition(story.status, StoryStatus.IDLE),
+                    "version": story.version + 1,
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
+                }
+            )
+            choice_update = connection.execute(
+                """
+                UPDATE choice_points SET selected_option_id = ?, payload = ?
+                WHERE id = ?
+                """,
+                (_optional_id(option_id), _json(updated_choice), str(choice.id)),
+            )
+            story_update = connection.execute(
+                "UPDATE stories SET payload = ? WHERE id = ?",
+                (_json(updated_story), str(story.id)),
+            )
+            if choice_update.rowcount != 1 or story_update.rowcount != 1:
+                raise RuntimeError("choice aggregate disappeared during submission")
+            connection.execute(
+                """
+                INSERT INTO memory_snapshots (id, story_id, branch_id, segment_id, payload)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    str(updated_memory.id),
+                    str(updated_memory.story_id),
+                    str(updated_memory.branch_id),
+                    _optional_id(updated_memory.segment_id),
+                    _json(updated_memory),
+                ),
+            )
+        return ChoiceSubmissionResult(
+            status="success", choice=updated_choice, story=updated_story
+        )
+
     def _insert_segment_bundle(
         self,
         connection: sqlite3.Connection,
@@ -658,6 +881,149 @@ class StoryRepository:
             ).fetchone()
         return MemorySnapshot.model_validate_json(row["payload"]) if row else None
 
+    def fork_at_choice(
+        self,
+        choice_id: UUID,
+        branch_name: str = "Branch",
+    ) -> tuple[Branch, MemorySnapshot]:
+        """Atomically create a fork branch at a selected choice and copy the pre-choice snapshot."""
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    choice_points.id                                   AS choice_id,
+                    json_extract(choice_points.payload, '$.status')    AS choice_status,
+                    choice_points.selected_option_id,
+                    choice_points.story_id                             AS story_id,
+                    choice_points.segment_id                           AS segment_id,
+                    story_segments.branch_id                           AS original_branch_id
+                FROM choice_points
+                JOIN story_segments ON story_segments.id = choice_points.segment_id
+                WHERE choice_points.id = ?
+                """,
+                (str(choice_id),),
+            ).fetchone()
+            if row is None:
+                raise ChoiceNotFoundError("choice does not exist")
+            if row["choice_status"] != "selected":
+                raise ChoiceNotSelectedError("choice must be selected before branching")
+
+            story_id_str = row["story_id"]
+            segment_id_str = row["segment_id"]
+            original_branch_id_str = row["original_branch_id"]
+            fork_choice_option_id: str | None = row["selected_option_id"]
+
+            # Find the pre-choice memory snapshot for the original branch.
+            # submit_choice saves a snapshot with segment_id = fork_segment;
+            # the snapshot just before that rowid is the pre-choice state.
+            choice_snap = connection.execute(
+                """
+                SELECT rowid, payload FROM memory_snapshots
+                WHERE branch_id = ? AND segment_id = ?
+                ORDER BY rowid DESC LIMIT 1
+                """,
+                (original_branch_id_str, segment_id_str),
+            ).fetchone()
+
+            if choice_snap is not None:
+                pre_snap = connection.execute(
+                    """
+                    SELECT payload FROM memory_snapshots
+                    WHERE branch_id = ? AND rowid < ?
+                    ORDER BY rowid DESC LIMIT 1
+                    """,
+                    (original_branch_id_str, choice_snap["rowid"]),
+                ).fetchone()
+            else:
+                pre_snap = None
+
+            if pre_snap is not None:
+                base_snapshot = MemorySnapshot.model_validate_json(pre_snap["payload"])
+            else:
+                # Synthesise from initial character states when no explicit pre-choice snapshot exists
+                char_rows = connection.execute(
+                    """
+                    SELECT payload FROM character_states
+                    WHERE story_id = ? AND branch_id = ? ORDER BY rowid
+                    """,
+                    (story_id_str, original_branch_id_str),
+                ).fetchall()
+                base_snapshot = MemorySnapshot(
+                    story_id=UUID(story_id_str),
+                    branch_id=UUID(original_branch_id_str),
+                    segment_id=UUID(segment_id_str),
+                    characters=[
+                        CharacterState.model_validate_json(r["payload"]) for r in char_rows
+                    ],
+                    context_version=0,
+                )
+
+            new_branch = Branch(
+                story_id=UUID(story_id_str),
+                parent_branch_id=UUID(original_branch_id_str),
+                fork_segment_id=UUID(segment_id_str),
+                fork_choice_id=UUID(fork_choice_option_id) if fork_choice_option_id else None,
+                name=branch_name,
+                # head_segment_id = fork_segment so generation chains from the fork point
+                head_segment_id=UUID(segment_id_str),
+            )
+            connection.execute(
+                """
+                INSERT INTO branches (
+                    id, story_id, parent_branch_id, fork_choice_id, fork_segment_id,
+                    head_segment_id, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(new_branch.id),
+                    str(new_branch.story_id),
+                    _optional_id(new_branch.parent_branch_id),
+                    _optional_id(new_branch.fork_choice_id),
+                    _optional_id(new_branch.fork_segment_id),
+                    _optional_id(new_branch.head_segment_id),
+                    _json(new_branch),
+                ),
+            )
+
+            new_snapshot = base_snapshot.model_copy(
+                update={
+                    "id": uuid4(),
+                    "branch_id": new_branch.id,
+                    "segment_id": UUID(segment_id_str),
+                },
+                deep=True,
+            )
+            connection.execute(
+                """
+                INSERT INTO memory_snapshots (id, story_id, branch_id, segment_id, payload)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    str(new_snapshot.id),
+                    str(new_snapshot.story_id),
+                    str(new_snapshot.branch_id),
+                    _optional_id(new_snapshot.segment_id),
+                    _json(new_snapshot),
+                ),
+            )
+        return new_branch, new_snapshot
+
 
 def _optional_id(value: UUID | None) -> str | None:
     return str(value) if value is not None else None
+
+
+def _is_exact_choice_replay(
+    choice: ChoicePoint,
+    submitted_version: int,
+    *,
+    option_id: UUID | None,
+    custom_action: str | None,
+) -> bool:
+    """Recognize the original request without treating another stale choice as duplicate."""
+    return (
+        choice.status == "selected"
+        and choice.version == submitted_version + 1
+        and choice.selected_option_id == option_id
+        and choice.selected_custom_action == custom_action
+    )
