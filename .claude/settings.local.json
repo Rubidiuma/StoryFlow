@@ -7,7 +7,9 @@
       "Bash(PYTHONPATH=/Users/lanxinru/code/homework/PersonalNovel/src python *)",
       "Bash(cat)",
       "Read(//tmp/**)",
-      "Bash(git commit -m 'fix: Python 3.9 compatibility and transition function export *)"
+      "Bash(git commit -m 'fix: Python 3.9 compatibility and transition function export *)",
+      "Bash(git worktree *)",
+      "Bash(git branch *)"
     ]
   }
 }
