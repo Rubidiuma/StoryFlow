@@ -1,0 +1,192 @@
+(function () {
+  "use strict";
+
+  const page = document.querySelector("main[data-story-id]");
+  if (!page) return;
+
+  const storyId = page.dataset.storyId;
+  const generateUrl = page.dataset.generateUrl;
+  const streamArea = page.querySelector(".segment-stream");
+  const errorBanner = page.querySelector(".reader-error");
+  let activeRequest = false;
+  let sceneCount = page.querySelectorAll(".segment").length;
+
+  // ── Auto-generate on IDLE ─────────────────────────────────────────────────
+  if (page.dataset.autogenerate === "true") {
+    setTimeout(() => startGeneration(_nextKey()), 300);
+  }
+
+  // ── Generation ────────────────────────────────────────────────────────────
+  function _nextKey() {
+    return `reader-${storyId}-${Date.now()}`;
+  }
+
+  async function startGeneration(key) {
+    if (activeRequest) return;
+    activeRequest = true;
+    _clearError();
+
+    let buffer = "";
+    let segmentId = null;
+
+    try {
+      const resp = await fetch(generateUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branch_id: page.dataset.branchId,
+          generation_key: key,
+          context: _buildContext(),
+        }),
+      });
+
+      if (!resp.ok) {
+        _showError("生成请求失败，请重试。");
+        activeRequest = false;
+        return;
+      }
+
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let partial = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        partial += dec.decode(value, { stream: true });
+        const blocks = partial.split("\n\n");
+        partial = blocks.pop() || "";
+        for (const block of blocks) {
+          const dataLine = block.split("\n").find((l) => l.startsWith("data:"));
+          if (!dataLine) continue;
+          let envelope;
+          try { envelope = JSON.parse(dataLine.slice(5).trim()); } catch { continue; }
+          _handleEvent(envelope, {
+            onDelta(text) { buffer += text; if (streamArea) streamArea.textContent = buffer; },
+            onCommitted(sid) { segmentId = sid; },
+            onContinue() {
+              _flushBuffer(buffer);
+              buffer = "";
+              activeRequest = false;
+              sceneCount += 1;
+              setTimeout(() => startGeneration(_nextKey()), 1000);
+            },
+            onChoice() { activeRequest = false; location.reload(); },
+            onPaused() { activeRequest = false; location.reload(); },
+            onError() { _flushBuffer(buffer); buffer = ""; activeRequest = false; _showError("生成出错。"); },
+          });
+        }
+      }
+    } catch (err) {
+      activeRequest = false;
+      _showError("网络错误，请检查连接。");
+    }
+  }
+
+  function _handleEvent(env, handlers) {
+    const name = env.event;
+    const data = env.data || {};
+    if (name === "delta") handlers.onDelta(data.text || "");
+    else if (name === "committed") handlers.onCommitted(data.segment_id);
+    else if (name === "continue") handlers.onContinue();
+    else if (name === "choice") handlers.onChoice();
+    else if (name === "paused") handlers.onPaused();
+    else if (name === "error") handlers.onError();
+  }
+
+  function _flushBuffer(text) {
+    if (!text || !streamArea) return;
+    const article = document.createElement("article");
+    article.className = "segment";
+    article.dataset.sequence = String(sceneCount + 1);
+    const p = document.createElement("p");
+    p.textContent = text;
+    article.appendChild(p);
+    streamArea.before(article);
+    streamArea.textContent = "";
+  }
+
+  function _buildContext() {
+    return { story_id: storyId, branch_id: page.dataset.branchId };
+  }
+
+  // ── Choices ───────────────────────────────────────────────────────────────
+  const choicePanel = page.querySelector("[data-view='choice-panel']");
+  if (choicePanel) {
+    const choiceId = choicePanel.dataset.choiceId;
+    const choiceVersion = parseInt(choicePanel.dataset.choiceVersion, 10);
+    const customInput = choicePanel.querySelector("input[name='custom_action']");
+    let submitting = false;
+
+    choicePanel.addEventListener("click", async (e) => {
+      if (submitting) return;
+      const btn = e.target.closest("[data-choice-option-id]");
+      if (btn) {
+        submitting = true;
+        btn.disabled = true;
+        await _submitChoice(choiceId, choiceVersion, { option_id: btn.dataset.choiceOptionId });
+        submitting = false;
+        btn.disabled = false;
+        return;
+      }
+      const customBtn = e.target.closest("[data-submit-custom]");
+      if (customBtn && customInput) {
+        const text = customInput.value.trim();
+        if (!text) return;
+        submitting = true;
+        customBtn.disabled = true;
+        await _submitChoice(choiceId, choiceVersion, { custom_action: text });
+        submitting = false;
+        customBtn.disabled = false;
+      }
+    });
+  }
+
+  async function _submitChoice(choiceId, version, payload) {
+    _clearError();
+    try {
+      const resp = await fetch(`/api/choices/${choiceId}/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ choice_version: version, ...payload }),
+      });
+      if (!resp.ok) { _showError("提交选择失败，请重试。"); return; }
+      location.reload();
+    } catch { _showError("网络错误，请重试。"); }
+  }
+
+  // ── Pause / Resume ────────────────────────────────────────────────────────
+  const pauseBtn = page.querySelector("[data-pause]");
+  const resumeBtn = page.querySelector("[data-resume]");
+
+  if (resumeBtn) {
+    resumeBtn.addEventListener("click", () => location.reload());
+  }
+
+  if (pauseBtn) {
+    pauseBtn.addEventListener("click", async () => {
+      pauseBtn.disabled = true;
+      try {
+        await fetch(`/api/stories/${storyId}/pause`, { method: "POST" });
+      } catch {}
+      location.reload();
+    });
+  }
+
+  // ── Retry ─────────────────────────────────────────────────────────────────
+  const retryBtn = page.querySelector("[data-retry]");
+  if (retryBtn) {
+    retryBtn.addEventListener("click", () => {
+      activeRequest = false;
+      startGeneration(_nextKey());
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function _showError(msg) {
+    if (errorBanner) { errorBanner.textContent = msg; errorBanner.hidden = false; }
+  }
+  function _clearError() {
+    if (errorBanner) { errorBanner.hidden = true; errorBanner.textContent = ""; }
+  }
+})();

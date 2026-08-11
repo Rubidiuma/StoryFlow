@@ -870,6 +870,15 @@ class StoryRepository:
             )
         return snapshot
 
+    def list_branches(self, story_id: UUID) -> list[Branch]:
+        """Return all branches for a story ordered by creation (rowid)."""
+        with self.database.read() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM branches WHERE story_id = ? ORDER BY rowid",
+                (str(story_id),),
+            ).fetchall()
+        return [Branch.model_validate_json(row["payload"]) for row in rows]
+
     def get_latest_memory_snapshot(self, branch_id: UUID) -> MemorySnapshot | None:
         with self.database.read() as connection:
             row = connection.execute(

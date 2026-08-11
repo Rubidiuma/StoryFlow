@@ -73,4 +73,41 @@ def create_web_router(repository: StoryRepository | None) -> APIRouter:
             context={"story": story, "bible": bible, "status_labels": STATUS_LABELS},
         )
 
+    @router.get(
+        "/stories/{story_id}/reader", response_class=HTMLResponse, include_in_schema=False
+    )
+    def reader_page(
+        request: Request, story_id: UUID, branch: UUID | None = None
+    ) -> HTMLResponse:
+        story = repository.get_story(story_id) if repository is not None else None
+        if story is None:
+            return templates.TemplateResponse(
+                request=request,
+                name="reader.html",
+                context={"story": None, "branch": None, "segments": [],
+                         "current_choice": None, "branches": [],
+                         "status_labels": STATUS_LABELS},
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        assert repository is not None
+        target_branch_id = branch or story.current_branch_id
+        branch_obj = repository.get_branch(target_branch_id) if target_branch_id else None
+        segments = repository.list_branch_path(target_branch_id) if target_branch_id else []
+        current_choice = None
+        if story.status is StoryStatus.WAITING_CHOICE and segments:
+            current_choice = repository.get_choice_point_for_segment(segments[-1].id)
+        branches = repository.list_branches(story_id)
+        return templates.TemplateResponse(
+            request=request,
+            name="reader.html",
+            context={
+                "story": story,
+                "branch": branch_obj,
+                "segments": segments,
+                "current_choice": current_choice,
+                "branches": branches,
+                "status_labels": STATUS_LABELS,
+            },
+        )
+
     return router

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}{% if story %}{{ story.title }}{% else %}故事不存在{% endif %} · 阅读器 · StoryFlow{% endblock %}
+
+{% block content %}
+  {% if not story or not branch %}
+    <section class="empty-state compact">
+      <span class="empty-glyph" aria-hidden="true">?</span>
+      <h1>故事不存在</h1>
+      <p>链接可能已失效，或故事尚未确认。</p>
+      <a class="button" href="/">返回书架</a>
+    </section>
+  {% else %}
+    <main class="reader-page"
+          data-story-id="{{ story.id }}"
+          data-branch-id="{{ branch.id }}"
+          data-story-status="{{ story.status.value }}"
+          data-generate-url="/api/stories/{{ story.id }}/generate"
+          {% if story.status.value == "IDLE" %}data-autogenerate="true"{% endif %}>
+
+      <header class="reader-header">
+        <div>
+          <a href="/stories/{{ story.id }}" class="reader-back">← {{ story.title }}</a>
+          <span class="status status-{{ story.status.value | lower }}">
+            {{ status_labels[story.status] }}
+          </span>
+        </div>
+        {% if branches | length > 1 %}
+        <nav class="branch-nav" data-view="branch-list" aria-label="分支列表">
+          {% for b in branches %}
+          <a href="/stories/{{ story.id }}/reader?branch={{ b.id }}"
+             class="branch-link{% if b.id == branch.id %} is-active{% endif %}">
+            {{ b.name }}
+          </a>
+          {% endfor %}
+        </nav>
+        {% endif %}
+      </header>
+
+      <div class="reader-error" role="alert" aria-live="polite" hidden></div>
+
+      <section class="segment-list" aria-label="故事正文">
+        {% for seg in segments %}
+        <article class="segment" data-sequence="{{ seg.sequence }}" data-segment-id="{{ seg.id }}">
+          <p>{{ seg.content }}</p>
+        </article>
+        {% endfor %}
+        <div class="segment-stream" aria-live="polite" aria-label="生成中的内容"></div>
+      </section>
+
+      {% if story.status.value == "PLANNING" or story.status.value == "STREAMING" or story.status.value == "COMMITTING" %}
+      <div class="generation-indicator" data-view="generation-active" aria-label="正在生成">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>生成中…</span>
+      </div>
+      {% endif %}
+
+      {% if story.status.value == "WAITING_CHOICE" and current_choice %}
+      <section class="choice-panel" data-view="choice-panel"
+               data-choice-id="{{ current_choice.id }}"
+               data-choice-version="{{ current_choice.version }}"
+               aria-label="请做出选择">
+        <p class="choice-reason">{{ current_choice.reason }}</p>
+        <div class="choice-options">
+          {% for option in current_choice.options %}
+          <button class="button choice-option-btn"
+                  data-choice-option-id="{{ option.id }}">
+            {{ option.text }}
+          </button>
+          {% endfor %}
+        </div>
+        <div class="custom-action-row">
+          <input name="custom_action" type="text" maxlength="300"
+                 placeholder="或者输入自定义行动（最多 300 字）"
+                 class="custom-action-input">
+          <button class="button button-secondary" data-submit-custom>提交</button>
+        </div>
+      </section>
+      {% endif %}
+
+      {% if story.status.value == "ERROR" %}
+      <div class="reader-error-state" data-view="error-state" role="alert">
+        <p>生成出错，请稍后重试。</p>
+        <button class="button" data-retry>重新生成</button>
+      </div>
+      {% endif %}
+
+      <div class="reader-controls">
+        {% if story.status.value == "PAUSED" %}
+        <button class="button" data-resume aria-label="继续生成">继续阅读</button>
+        {% elif story.status.value not in ("WAITING_CHOICE", "ERROR", "DRAFT") %}
+        <button class="button button-secondary" data-pause aria-label="暂停生成">暂停</button>
+        {% endif %}
+        <a class="button button-secondary" href="/">返回书架</a>
+      </div>
+    </main>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', path='/js/reader.js') }}" defer></script>
+{% endblock %}
