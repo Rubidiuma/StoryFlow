@@ -4,7 +4,9 @@ import json
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from math import ceil
-from typing import Literal
+from typing import Literal, cast
+
+from pydantic_core import to_jsonable_python
 
 ForeshadowingStatus = Literal["planted", "active", "resolved", "abandoned"]
 
@@ -64,13 +66,18 @@ class ContextBudgetError(ValueError):
 
 def estimate_tokens(value: object) -> int:
     """Estimate tokens from canonical JSON or raw text at four characters each."""
-    if value is None or value == "" or value == [] or value == {}:
+    if value is None:
         return 0
     if isinstance(value, str):
+        if not value:
+            return 0
         serialized = value
     else:
+        json_value = to_jsonable_python(value)
+        if isinstance(json_value, (str, list, dict)) and not json_value:
+            return 0
         serialized = json.dumps(
-            value,
+            json_value,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
@@ -89,15 +96,14 @@ class ContextBuilder:
         ordered_scenes = sorted(memory.scenes, key=lambda scene: scene.sequence)
         recent_scenes = ordered_scenes[-2:]
         older_scenes = reversed(ordered_scenes[:-2])
-        older_scene_summaries = [
+        raw_older_scene_summaries = [
             {"sequence": scene.sequence, "summary": scene.summary}
             for scene in older_scenes
         ]
-        characters = deepcopy(memory.characters)
-        layers: dict[str, object] = {
+        raw_layers: dict[str, object] = {
             "fixed_memory": deepcopy(memory.fixed_memory),
             "current_arc": deepcopy(memory.current_arc),
-            "characters": characters,
+            "characters": deepcopy(memory.characters),
             "foreshadowing": [
                 asdict(item)
                 for item in memory.foreshadowing
@@ -106,8 +112,13 @@ class ContextBuilder:
             "choices": [asdict(item) for item in memory.choices],
             "rolling_summary": memory.rolling_summary,
             "recent_scenes": [asdict(scene) for scene in recent_scenes],
-            "older_scene_summaries": older_scene_summaries,
+            "older_scene_summaries": raw_older_scene_summaries,
         }
+        layers = cast(dict[str, object], to_jsonable_python(raw_layers))
+        characters = cast(list[dict[str, object]], layers["characters"])
+        older_scene_summaries = cast(
+            list[dict[str, object]], layers["older_scene_summaries"]
+        )
         estimated_tokens = estimate_tokens(layers)
         while estimated_tokens > self.budget_tokens and older_scene_summaries:
             older_scene_summaries.pop()
@@ -126,6 +137,9 @@ class ContextBuilder:
             characters.pop(unrelated_index)
             estimated_tokens = estimate_tokens(layers)
         rolling_words = memory.rolling_summary.split()
+        if estimated_tokens > self.budget_tokens and memory.rolling_summary and not rolling_words:
+            layers["rolling_summary"] = ""
+            estimated_tokens = estimate_tokens(layers)
         while estimated_tokens > self.budget_tokens and rolling_words:
             rolling_words.pop(0)
             layers["rolling_summary"] = " ".join(rolling_words)

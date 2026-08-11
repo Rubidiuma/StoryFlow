@@ -21,7 +21,12 @@ def test_valid_payload_parses_into_typed_memory_update_without_mutating_input():
                 "name": "Mira",
                 "role": "engineer",
                 "location": "eastern seal",
+                "motivation": "keep the city aloft",
                 "known_facts": ["the seal is cracked"],
+                "secrets": [],
+                "relationships": {},
+                "alive": True,
+                "version": 1,
             }
         ],
         "active_threads": ["Repair the eastern seal"],
@@ -72,6 +77,69 @@ def test_valid_payload_parses_into_typed_memory_update_without_mutating_input():
         ),
         ({"foreshadowing": [{"id": "lens", "status": "active"}]}, "foreshadowing"),
         ({"rolling_summary": 9}, "rolling_summary"),
+        (
+            {
+                "characters": [
+                    {
+                        "story_id": "00000000-0000-0000-0000-000000000001",
+                        "branch_id": "00000000-0000-0000-0000-000000000002",
+                        "name": "Mira",
+                        "role": "engineer",
+                        "location": "eastern seal",
+                        "motivation": "keep the city aloft",
+                        "known_facts": [],
+                        "secrets": [],
+                        "relationships": {},
+                        "alive": True,
+                        "version": 1,
+                    }
+                ]
+            },
+            "characters",
+        ),
+        (
+            {
+                "characters": [
+                    {
+                        "id": "00000000-0000-0000-0000-000000000003",
+                        "story_id": "00000000-0000-0000-0000-000000000001",
+                        "branch_id": "00000000-0000-0000-0000-000000000002",
+                        "name": "Mira",
+                        "role": "engineer",
+                        "location": "eastern seal",
+                        "motivation": "keep the city aloft",
+                        "known_facts": [],
+                        "secrets": [],
+                        "relationships": {},
+                        "alive": "yes",
+                        "version": 1,
+                    }
+                ]
+            },
+            "characters",
+        ),
+        (
+            {
+                "characters": [
+                    {
+                        "id": "00000000-0000-0000-0000-000000000003",
+                        "story_id": "00000000-0000-0000-0000-000000000001",
+                        "branch_id": "00000000-0000-0000-0000-000000000002",
+                        "name": "Mira",
+                        "role": "engineer",
+                        "location": "eastern seal",
+                        "motivation": "keep the city aloft",
+                        "known_facts": [],
+                        "secrets": [],
+                        "relationships": {},
+                        "alive": True,
+                        "version": 1,
+                        "unexpected": "field",
+                    }
+                ]
+            },
+            "characters",
+        ),
     ],
 )
 def test_malformed_memory_update_fields_raise_clear_value_errors(

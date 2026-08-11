@@ -1,6 +1,8 @@
 """Unit tests for deterministic, budgeted story context construction."""
 
+import json
 from copy import deepcopy
+from uuid import UUID
 
 import pytest
 
@@ -216,3 +218,56 @@ def test_budget_smaller_than_untrimmable_layers_raises_an_explicit_error():
 
     with pytest.raises(ContextBudgetError, match="mandatory context"):
         ContextBuilder(budget_tokens=1).build(memory)
+
+
+def test_domain_uuid_values_are_normalized_into_json_serializable_layers():
+    """Passing domain identifiers through unchanged would break prompt JSON serialization."""
+    memory = LayeredMemory(
+        fixed_memory={"story_id": UUID("00000000-0000-0000-0000-000000000001")},
+        current_arc={"branch_id": UUID("00000000-0000-0000-0000-000000000002")},
+        characters=[],
+        foreshadowing=[],
+        choices=[
+            ChoiceMemory(
+                text="Open the gate",
+                effects={"segment_id": UUID("00000000-0000-0000-0000-000000000003")},
+            )
+        ],
+        rolling_summary="",
+        scenes=[],
+    )
+
+    result = ContextBuilder(budget_tokens=200).build(memory)
+
+    assert result.layers["fixed_memory"] == {
+        "story_id": "00000000-0000-0000-0000-000000000001"
+    }
+    assert result.layers["current_arc"] == {
+        "branch_id": "00000000-0000-0000-0000-000000000002"
+    }
+    assert result.layers["choices"] == [
+        {
+            "text": "Open the gate",
+            "effects": {"segment_id": "00000000-0000-0000-0000-000000000003"},
+            "result_summary": "",
+        }
+    ]
+    json.dumps(result.layers)
+
+
+def test_whitespace_only_optional_summary_is_cleared_under_budget_pressure():
+    """Whitespace with no words is optional summary content, not mandatory context."""
+    memory = LayeredMemory(
+        fixed_memory={},
+        current_arc={},
+        characters=[],
+        foreshadowing=[],
+        choices=[],
+        rolling_summary=" " * 100,
+        scenes=[],
+    )
+
+    result = ContextBuilder(budget_tokens=38).build(memory)
+
+    assert result.layers["rolling_summary"] == ""
+    assert result.estimated_tokens == 38

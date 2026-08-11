@@ -3,6 +3,9 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from storyflow.domain.models import CharacterState, MemorySnapshot
 from storyflow.services.context_builder import ForeshadowingMemory, ForeshadowingStatus
@@ -12,6 +15,25 @@ _UPDATE_FIELDS = frozenset(
 )
 _FORESHADOWING_FIELDS = frozenset({"id", "description", "status"})
 _FORESHADOWING_STATUSES = frozenset({"planted", "active", "resolved", "abandoned"})
+
+
+class _CharacterUpdatePayload(BaseModel):
+    """A complete, strict character replacement that cannot invoke domain defaults."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    id: UUID = Field(strict=False)
+    story_id: UUID = Field(strict=False)
+    branch_id: UUID = Field(strict=False)
+    name: str
+    role: str
+    location: str
+    motivation: str
+    known_facts: list[str]
+    secrets: list[str]
+    relationships: dict[str, str]
+    alive: bool
+    version: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +61,8 @@ class MemoryService:
             characters = []
             for item in _require_list(payload["characters"], "characters"):
                 try:
-                    character = CharacterState.model_validate(item)
+                    parsed = _CharacterUpdatePayload.model_validate(item)
+                    character = CharacterState.model_validate(parsed.model_dump())
                 except ValueError as exc:
                     raise ValueError("characters contains a malformed character") from exc
                 characters.append(character.model_copy(deep=True))
