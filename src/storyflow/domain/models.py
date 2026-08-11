@@ -332,4 +332,5 @@ class GenerationEvent(BaseModel):
     input_token_estimate: int = Field(0)
     output_size: int = Field(0)
     error_code: str | None = None
+    state_sequence: list[StoryStatus] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_naive_utc_now)

@@ -324,60 +324,168 @@ class StoryRepository:
         """Atomically persist a generated segment and its optional associated records."""
         with self.database.transaction() as connection:
             branch_row = connection.execute(
-                "SELECT story_id, payload FROM branches WHERE id = ?", (str(segment.branch_id),)
+                "SELECT story_id, head_segment_id, payload FROM branches WHERE id = ?",
+                (str(segment.branch_id),),
             ).fetchone()
             if branch_row is None:
                 raise sqlite3.IntegrityError("segment branch does not exist")
             if branch_row["story_id"] != str(segment.story_id):
                 raise ValueError("segment branch must belong to the segment story")
-            if event is not None and (
-                event.story_id != segment.story_id or event.branch_id != segment.branch_id
-            ):
-                raise ValueError("event story and branch must match the segment")
-            existing = connection.execute(
-                "SELECT payload FROM story_segments WHERE generation_key = ?",
-                (segment.generation_key,),
+            return self._insert_segment_bundle(
+                connection,
+                segment,
+                branch_row,
+                choice_point,
+                event,
+            )
+
+    def commit_generation_bundle(
+        self,
+        initial_story: Story,
+        state_sequence: list[StoryStatus],
+        segment: StorySegment,
+        choice_point: ChoicePoint | None,
+        event: GenerationEvent,
+    ) -> tuple[Story, StorySegment]:
+        """Atomically persist every state write and one completed generation bundle."""
+        if not state_sequence or state_sequence[0] != initial_story.status:
+            raise ValueError("generation state sequence must begin at the persisted status")
+        if event.state_sequence != state_sequence:
+            raise ValueError("generation event must record the exact state sequence")
+        current = state_sequence[0]
+        for target in state_sequence[1:]:
+            current = transition(current, target)
+        with self.database.transaction() as connection:
+            story_row = connection.execute(
+                "SELECT current_branch_id, payload FROM stories WHERE id = ?",
+                (str(initial_story.id),),
             ).fetchone()
-            if existing:
-                return StorySegment.model_validate_json(existing["payload"])
+            if story_row is None:
+                raise StoryNotFoundError("story does not exist")
+            persisted_story = Story.model_validate_json(story_row["payload"])
+            if (
+                persisted_story.status != initial_story.status
+                or persisted_story.version != initial_story.version
+                or persisted_story.current_branch_id != segment.branch_id
+                or story_row["current_branch_id"] != str(segment.branch_id)
+            ):
+                raise IllegalStoryStateError("story changed before generation commit")
+
+            branch_row = connection.execute(
+                "SELECT story_id, head_segment_id, payload FROM branches WHERE id = ?",
+                (str(segment.branch_id),),
+            ).fetchone()
+            if branch_row is None:
+                raise sqlite3.IntegrityError("segment branch does not exist")
+            if branch_row["story_id"] != str(segment.story_id):
+                raise ValueError("segment branch must belong to the segment story")
+            if branch_row["head_segment_id"] != _optional_id(segment.parent_segment_id):
+                raise IllegalStoryStateError("branch head changed before generation commit")
+
+            updated_story = persisted_story
+            for target in state_sequence[1:]:
+                updated_story = updated_story.model_copy(
+                    update={
+                        "status": target,
+                        "version": updated_story.version + 1,
+                        "updated_at": datetime.now(UTC).replace(tzinfo=None),
+                    }
+                )
+                connection.execute(
+                    "UPDATE stories SET payload = ? WHERE id = ?",
+                    (_json(updated_story), str(updated_story.id)),
+                )
+
+            committed = self._insert_segment_bundle(
+                connection,
+                segment,
+                branch_row,
+                choice_point,
+                event,
+            )
+        return updated_story, committed
+
+    def get_segment_by_generation_key(self, generation_key: str) -> StorySegment | None:
+        """Return the formal scene committed for one idempotency key, if any."""
+        with self.database.read() as connection:
+            row = connection.execute(
+                "SELECT payload FROM story_segments WHERE generation_key = ?",
+                (generation_key,),
+            ).fetchone()
+        return StorySegment.model_validate_json(row["payload"]) if row else None
+
+    def get_choice_point_for_segment(self, segment_id: UUID) -> ChoicePoint | None:
+        """Return the optional choice committed with a formal scene."""
+        with self.database.read() as connection:
+            row = connection.execute(
+                "SELECT payload FROM choice_points WHERE segment_id = ?",
+                (str(segment_id),),
+            ).fetchone()
+        return ChoicePoint.model_validate_json(row["payload"]) if row else None
+
+    def _insert_segment_bundle(
+        self,
+        connection: sqlite3.Connection,
+        segment: StorySegment,
+        branch_row: sqlite3.Row,
+        choice_point: ChoicePoint | None,
+        event: GenerationEvent | None,
+    ) -> StorySegment:
+        """Insert one scene bundle using an existing transaction and branch row."""
+        if event is not None and (
+            event.story_id != segment.story_id or event.branch_id != segment.branch_id
+        ):
+            raise ValueError("event story and branch must match the segment")
+        existing = connection.execute(
+            "SELECT payload FROM story_segments WHERE generation_key = ?",
+            (segment.generation_key,),
+        ).fetchone()
+        if existing:
+            return StorySegment.model_validate_json(existing["payload"])
+        connection.execute(
+            """
+            INSERT INTO story_segments (
+                id, story_id, branch_id, parent_segment_id, sequence, generation_key, payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(segment.id),
+                str(segment.story_id),
+                str(segment.branch_id),
+                _optional_id(segment.parent_segment_id),
+                segment.sequence,
+                segment.generation_key,
+                _json(segment),
+            ),
+        )
+        if choice_point is not None:
+            self._insert_choice_point(connection, segment, choice_point)
+        if event is not None:
             connection.execute(
                 """
-                INSERT INTO story_segments (
-                    id, story_id, branch_id, parent_segment_id, sequence, generation_key, payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO generation_events (id, story_id, branch_id, request_id, payload)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
-                    str(segment.id),
-                    str(segment.story_id),
-                    str(segment.branch_id),
-                    _optional_id(segment.parent_segment_id),
-                    segment.sequence,
-                    segment.generation_key,
-                    _json(segment),
+                    str(event.id),
+                    str(event.story_id),
+                    str(event.branch_id),
+                    event.request_id,
+                    _json(event),
                 ),
             )
-            if choice_point is not None:
-                self._insert_choice_point(connection, segment, choice_point)
-            if event is not None:
-                connection.execute(
-                    """
-                    INSERT INTO generation_events (id, story_id, branch_id, request_id, payload)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (str(event.id), str(event.story_id), str(event.branch_id), event.request_id, _json(event)),
-                )
-            branch = Branch.model_validate_json(branch_row["payload"]).model_copy(
-                update={"head_segment_id": segment.id}
-            )
-            updated = connection.execute(
-                """
-                UPDATE branches SET head_segment_id = ?, payload = ?
-                WHERE id = ? AND story_id = ?
-                """,
-                (str(segment.id), _json(branch), str(segment.branch_id), str(segment.story_id)),
-            )
-            if updated.rowcount != 1:
-                raise RuntimeError("segment branch disappeared during transaction")
+        branch = Branch.model_validate_json(branch_row["payload"]).model_copy(
+            update={"head_segment_id": segment.id}
+        )
+        updated = connection.execute(
+            """
+            UPDATE branches SET head_segment_id = ?, payload = ?
+            WHERE id = ? AND story_id = ?
+            """,
+            (str(segment.id), _json(branch), str(segment.branch_id), str(segment.story_id)),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("segment branch disappeared during transaction")
         return segment
 
     def _insert_choice_point(
