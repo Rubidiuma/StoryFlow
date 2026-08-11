@@ -1,35 +1,26 @@
-FROM python:3.12-slim AS builder
-WORKDIR /build
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install dependencies via uv
 COPY pyproject.toml uv.lock ./
-# Install deps only; skip the local 'storyflow' package (src/ not yet present)
 RUN pip install --no-cache-dir uv \
     && uv sync --no-dev --frozen --no-install-project
 
-FROM python:3.12-slim
-LABEL maintainer="StoryFlow"
-LABEL description="AI-driven interactive fiction — StoryFlow"
-
-RUN groupadd -r storyflow && useradd -r -g storyflow storyflow
-
-WORKDIR /app
-COPY --from=builder /build/.venv /app/.venv
+# Copy application source
 COPY src/ /app/src/
 
-RUN mkdir -p /data && chown storyflow:storyflow /data
+# Ensure data directory exists (will be overridden by mounted volume)
+RUN mkdir -p /data
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/src"
 ENV STORYFLOW_ENVIRONMENT="production"
-ENV STORYFLOW_HOST="0.0.0.0"
-ENV STORYFLOW_PORT="8000"
-
-VOLUME /data
-
-USER storyflow
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8000}/health')" || exit 1
 
-CMD ["uvicorn", "storyflow.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use $PORT from Render (falls back to 8000 locally)
+CMD ["sh", "-c", "exec uvicorn storyflow.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

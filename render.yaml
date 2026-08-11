@@ -4,7 +4,6 @@ services:
     runtime: docker
     plan: free
 
-    # Persistent disk for SQLite database
     disk:
       name: storyflow-data
       mountPath: /data
@@ -15,16 +14,12 @@ services:
         value: /data/storyflow.sqlite3
       - key: STORYFLOW_ENVIRONMENT
         value: production
-      - key: STORYFLOW_HOST
-        value: 0.0.0.0
-      - key: STORYFLOW_PORT
-        value: "8000"
-      # Set these in the Render dashboard — never commit real keys
+      # Set these manually in the Render dashboard — never commit real keys
       - key: STORYFLOW_LLM_KEY
-        sync: false          # will prompt you to enter the value in dashboard
+        sync: false
       - key: STORYFLOW_LLM_BASE_URL
-        sync: false          # e.g. https://api.poe.com
+        sync: false
       - key: STORYFLOW_LLM_MODEL
-        sync: false          # e.g. claude-3-5-sonnet-20241022
+        sync: false
 
     healthCheckPath: /health
