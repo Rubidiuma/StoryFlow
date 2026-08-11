@@ -415,6 +415,94 @@ Category: Domain Validation (16/16)
 
 ---
 
+---
+
+## PR-05：选择、分支和故事弧 (T11-T13)
+
+**日期：** 2026-08-11  
+**Agent 类型：** Claude Code (claude-sonnet-4.6)  
+**Worktree：** `.worktrees/feature-choice-branch`  
+**Branch：** `feature/choice-branch`  
+**状态：** ✅ **全部完成 — 221/221 测试通过**
+
+---
+
+### T11 预设与自定义选择
+
+**依赖：** PR-04（T08-T10）  
+**测试文件：** `tests/integration/test_choice_submission.py`  
+**实现文件：** `src/storyflow/api/routes/choices.py`、`src/storyflow/services/memory.py`
+
+**验证结果（红→绿）：**
+- 已在 PR-04 完成；本次验证所有 9 个测试通过 ✅
+
+**关键实现：**
+- `ChoiceService` 已在 choices.py 中完整实现（版本检查、原子提交、自定义行动解析）
+- `MemoryService.apply_choice_effects` 处理 route_change/character_state/information_state/relationship_change 四类效果
+
+---
+
+### T12 分支与记忆快照恢复
+
+**依赖：** T11  
+**测试文件：** `tests/integration/test_branching.py`（新增 6 个测试）  
+**实现文件：**
+- `src/storyflow/db/repositories.py` — 新增 `ChoiceNotSelectedError`、`StoryRepository.fork_at_choice()`
+- `src/storyflow/services/branches.py` — 新增 `BranchService`
+- `src/storyflow/api/routes/choices.py` — 新增 `POST /api/choices/{id}/branch`
+
+**测试红→绿记录：**
+```
+6 failed → 6 passed
+```
+
+**关键设计决策：**
+1. 新分支的 `head_segment_id = fork_segment_id`，使 generation chain 从分叉点续接
+2. 前置快照通过 rowid 查找：先找 `submit_choice` 创建的快照（segment_id=fork），再取其 rowid 之前最新的快照
+3. SQLite 触发器兼容性：`fork_choice_id` 使用 `choice_options.id`（非 choice_point.id）
+
+**遭遇问题与修复：**
+- `choice_points.status` 不是独立列，需用 `json_extract(payload, '$.status')` 读取
+
+---
+
+### T13 动态故事弧与摘要
+
+**依赖：** T07、T12  
+**测试文件：** `tests/integration/test_story_arc.py`（新增 20 个测试）  
+**实现文件：**
+- `src/storyflow/services/memory.py` — 扩展 `MemoryService` 新增 T13 方法
+- `src/storyflow/prompts/memory.py` — 新增 `ROLLING_SUMMARY_PROMPT_V1`、`NEXT_ARC_PROMPT_V1`
+
+**测试红→绿记录：**
+```
+20 failed → 20 passed
+```
+
+**关键实现：**
+- `MemoryService.should_trigger_rolling_summary(seq)` — 纯函数，seq > 0 且 seq % 5 == 0
+- `MemoryService.update_rolling_summary(snapshot, scenes, llm)` — 异步；LLM 失败时返回原快照（best-effort）
+- `MemoryService.should_generate_next_arc(arc)` — arc.status == "completed"
+- `MemoryService.generate_next_arc(...)` — 调用 LLM，返回 status="active" 的新弧
+- `validate_arc_not_contradicting_facts(bible, arc_payload)` — 启发式检查：提取世界规则中的禁止动词及其词形变化，验证新弧不违反
+
+**遭遇问题与修复：**
+- 动词词形匹配："cannot be melted" → extracted "melted"，但弧文本含 "melt"（原形）
+  → 修复：同时检查去掉 "-ed" 的词根形式
+
+---
+
+### PR-05 全套测试汇总
+
+| 测试文件 | 新增数量 | 结果 |
+|---------|---------|------|
+| test_choice_submission.py | 9（已有） | ✅ 全通过 |
+| test_branching.py | 6（新增） | ✅ 全通过 |
+| test_story_arc.py | 20（新增） | ✅ 全通过 |
+| **全套回归** | **221** | ✅ **全部通过** |
+
+---
+
 *日志维护：主开发 Claude（Claude Code）*  
 *初始化：2026-08-07*  
 *持续更新中...*
