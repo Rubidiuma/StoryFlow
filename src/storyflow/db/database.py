@@ -81,11 +81,11 @@ class Database:
             connection.close()
 
     @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
+    def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:
         """Yield a connection with an explicit transaction boundary."""
         connection = self.connect()
         try:
-            connection.execute("BEGIN")
+            connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
             yield connection
             connection.commit()
         except BaseException:

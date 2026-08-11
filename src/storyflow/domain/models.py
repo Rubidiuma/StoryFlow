@@ -1,7 +1,12 @@
 from __future__ import annotations
 """Domain models for StoryFlow per SPEC §8."""
 from datetime import datetime, timezone
-from typing import Any, Self
+from typing import Any
+
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 from uuid import UUID, uuid4
 
 # Python 3.9 compatibility
@@ -80,6 +85,12 @@ class CustomAction(BaseModel):
 
     text: str = Field(..., min_length=1, max_length=300)
 
+    @field_validator("text")
+    @classmethod
+    def text_is_not_blank(cls, value: str) -> str:
+        """A custom action must contain at least one visible character."""
+        return _require_non_blank(value, "Custom action must not be blank")
+
 
 class ChoiceOption(BaseModel):
     """Choice option per SPEC §5.3 and §8."""
@@ -121,6 +132,9 @@ class ChoicePoint(BaseModel):
     options: list[ChoiceOption] = Field(..., description="Must contain exactly 3 options")
     status: str = Field("pending", description="pending, committed, selected")
     selected_option_id: UUID | None = None
+    selected_custom_action: str | None = Field(default=None, max_length=300)
+    selected_effects: dict[str, Any] | None = None
+    version: int = Field(default=1, ge=1, description="One-time submission version")
 
     @field_validator("reason")
     @classmethod
