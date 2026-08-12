@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Server-rendered entry pages for the StoryFlow browser experience."""
 
+import logging
 from pathlib import Path
 from uuid import UUID
 
@@ -11,6 +12,8 @@ from fastapi.templating import Jinja2Templates
 
 from storyflow.db.repositories import StoryRepository
 from storyflow.domain.enums import StoryStatus
+
+_log = logging.getLogger(__name__)
 
 PACKAGE_DIRECTORY = Path(__file__).resolve().parents[2]
 WEB_STATIC_DIRECTORY = PACKAGE_DIRECTORY / "static"
@@ -55,10 +58,16 @@ def create_web_router(repository: StoryRepository | None) -> APIRouter:
     )
     def story_page(request: Request, story_id: UUID) -> HTMLResponse:
         if repository is None:
-            story = None
-        else:
-            story = repository.get_story(story_id)
+            _log.warning("story_page: repository is None, returning 503")
+            return templates.TemplateResponse(
+                request=request,
+                name="story.html",
+                context={"story": None, "bible": None, "status_labels": STATUS_LABELS},
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        story = repository.get_story(story_id)
         if story is None:
+            _log.warning("story_page: story %s not found", story_id)
             return templates.TemplateResponse(
                 request=request,
                 name="story.html",
@@ -79,8 +88,19 @@ def create_web_router(repository: StoryRepository | None) -> APIRouter:
     def reader_page(
         request: Request, story_id: UUID, branch: UUID | None = None
     ) -> HTMLResponse:
-        story = repository.get_story(story_id) if repository is not None else None
+        if repository is None:
+            _log.warning("reader_page: repository is None, returning 503")
+            return templates.TemplateResponse(
+                request=request,
+                name="reader.html",
+                context={"story": None, "branch": None, "segments": [],
+                         "current_choice": None, "branches": [],
+                         "status_labels": STATUS_LABELS},
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        story = repository.get_story(story_id)
         if story is None:
+            _log.warning("reader_page: story %s not found", story_id)
             return templates.TemplateResponse(
                 request=request,
                 name="reader.html",
