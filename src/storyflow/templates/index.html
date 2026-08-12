@@ -25,7 +25,7 @@
             <span class="meta">最近更新 {{ story.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
           </div>
           <h2>{{ story.title }}</h2>
-          <p>{{ story.config.genre }} · {{ story.config.structure }} · 选择频率 {{ story.choice_frequency.value }}</p>
+          <p>{{ story.config.genre }} · {{ story.config.structure }} · 选择频率 {{ story.choice_frequency }}</p>
           <a class="card-link" href="/stories/{{ story.id }}">
             {% if story.status.value == "DRAFT" %}查看并确认设定{% else %}继续阅读{% endif %}
             <span aria-hidden="true">→</span>

@@ -68,7 +68,7 @@
           <h1>{{ story.title }}</h1>
           <p>最近更新 {{ story.updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
         </div>
-        <span class="status status-{{ story.status.value | lower }}">{{ story.status.value }}</span>
+        <span class="status status-{{ story.status.value | lower }}">{{ status_labels[story.status] }}</span>
       </header>
       <div class="reader-placeholder">
         <span aria-hidden="true">↳</span>
