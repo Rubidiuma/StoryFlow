@@ -9,6 +9,8 @@ Return only one JSON object with exactly these sections:
 - required_elements, forbidden_elements: arrays of strings
 - characters: a non-empty array of character objects with non-empty name and role;
   optional fields are location, motivation, known_facts, secrets, relationships, alive, version
+  IMPORTANT: The protagonist (main character) must have the name provided in protagonist_name field.
+  Use this exact name for the protagonist character.
 - first_arc: an object with non-empty goal and conflict; optional fields are stage,
   exit_conditions, status, summary
 Do not include prose outside the object.

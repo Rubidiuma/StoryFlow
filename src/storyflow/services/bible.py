@@ -283,7 +283,15 @@ async def generate_validated_bible(
     story: Story, llm_client: LLMClient
 ) -> GeneratedBiblePayload:
     """Request and validate a Bible response, retrying one structural failure."""
+    from storyflow.services.naming import get_protagonist_name
+
     context = story.config.model_dump(mode="json")
+
+    # Extract or generate protagonist name and add to context
+    protagonist_name = get_protagonist_name(story.config.protagonist_desc)
+    context["protagonist_name"] = protagonist_name
+    _log.debug("Using protagonist name: %s", protagonist_name)
+
     last_raw: dict = {}
     for attempt in range(2):
         try:
