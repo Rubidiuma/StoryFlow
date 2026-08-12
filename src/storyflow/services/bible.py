@@ -152,8 +152,24 @@ def _normalize_bible_response(raw: dict) -> dict:
                     c[list_field] = [val] if val.strip() else []
                 elif val is None:
                     c[list_field] = []
+            # Ensure relationships is always a dict, not a string
+            rel = c.get("relationships")
+            if isinstance(rel, str):
+                c["relationships"] = {rel: rel} if rel.strip() else {}
+            elif not isinstance(rel, dict):
+                c["relationships"] = {}
             normalized_chars.append(c)
         r["characters"] = normalized_chars
+
+    # Normalize first_arc sub-fields - ensure exit_conditions is a list
+    if isinstance(r.get("first_arc"), dict):
+        arc = dict(r["first_arc"])
+        exit_cond = arc.get("exit_conditions")
+        if isinstance(exit_cond, str):
+            arc["exit_conditions"] = [exit_cond] if exit_cond.strip() else []
+        elif not isinstance(exit_cond, list):
+            arc["exit_conditions"] = []
+        r["first_arc"] = arc
 
     return r
 
