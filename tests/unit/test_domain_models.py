@@ -101,7 +101,7 @@ class TestStoryConfig:
 
         config = StoryConfig(**values)
         assert config.important_supporting_characters == "c" * 1000
-        with pytest.raises(ValidationError, match="6000"):
+        with pytest.raises(ValidationError, match="6,000"):  # Now uses Chinese format
             StoryConfig(**values, ending_tendency="e")
 
     def test_choice_frequency_enum(self):

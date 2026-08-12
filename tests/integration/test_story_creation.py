@@ -190,11 +190,17 @@ async def test_garbled_bible_responses_use_lenient_fallback_from_story_config(
         "required_elements": None,
         "forbidden_elements": None,
         "ending_tendency": None,
+        "protagonist_name": None,  # Will be present but may vary
     }
-    assert [call["context"] for call in llm_client.calls] == [
-        expected_context,
-        expected_context,
-    ]
+    # Check contexts match except protagonist_name may be different between calls
+    contexts = [call["context"] for call in llm_client.calls]
+    assert len(contexts) == 2
+    for context in contexts:
+        # Remove protagonist_name for comparison as it's randomly generated
+        context_copy = {k: v for k, v in context.items() if k != "protagonist_name"}
+        expected_copy = {k: v for k, v in expected_context.items() if k != "protagonist_name"}
+        assert context_copy == expected_copy
+        assert "protagonist_name" in context  # Ensure it's present
     assert all("story_bible_v1" in str(call["prompt"]) for call in llm_client.calls)
     # Fallback succeeded: story has a bible bundle (branch + arc created)
     persisted = repository.get_story(story_id)
