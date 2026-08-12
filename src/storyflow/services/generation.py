@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import sqlite3
 from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
@@ -16,6 +17,36 @@ _log = logging.getLogger(__name__)
 # Valid ChoiceType enum values and valid effect field keys
 _VALID_CHOICE_TYPES = {"decision", "action", "dialogue"}
 _VALID_EFFECT_KEYS = {"route_change", "information_state", "character_state", "relationship_change"}
+
+
+def _normalize_character_names(content: str, characters: list[dict[str, Any]]) -> str:
+    """Fix LLM's tendency to translate names to English or use wrong characters.
+
+    Replaces common mistakes like:
+    - "Lan Xinru" or "蓝馨如" misspellings → correct Chinese name
+    - "兰馨如" (wrong character) → correct character
+    """
+    if not characters:
+        return content
+
+    # Build a map of known character names to correct names
+    # Also include common mistakes to fix
+    name_fixes: dict[str, str] = {}
+    for char in characters:
+        name = char.get("name", "")
+        if name:
+            name_fixes[name] = name  # Map correct name to itself
+
+    # Add common pinyin/mistake mappings for Chinese protagonist names
+    # This is a safety net for names that LLM might mangle
+    if "蓝馨如" in name_fixes:
+        # Fix common mistakes for this name
+        content = re.sub(r'\bLan\s+Xinru\b|\bLan Xinru\b', "蓝馨如", content, flags=re.IGNORECASE)
+        content = re.sub(r'\b兰馨如\b', "蓝馨如", content)  # Wrong character
+        content = re.sub(r'\bLanXinru\b', "蓝馨如", content, flags=re.IGNORECASE)
+        content = re.sub(r'\blan xinru\b', "蓝馨如", content, flags=re.IGNORECASE)
+
+    return content
 
 
 def _normalize_director_response(response: dict[str, Any]) -> dict[str, Any]:
@@ -234,6 +265,10 @@ class GenerationService:
             return GenerationResult(status=StoryStatus.ERROR, error_code="writer_failed")
 
         content = "".join(chunks)
+        # Normalize character names to fix LLM mistakes (e.g., English translations)
+        characters = request.context.get("characters", [])
+        if isinstance(characters, list):
+            content = _normalize_character_names(content, characters)
         self._advance(state_machine, state_sequence, StoryStatus.COMMITTING)
         if choice is not None:
             final_status = StoryStatus.WAITING_CHOICE
