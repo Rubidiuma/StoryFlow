@@ -17,13 +17,13 @@ Only use the exact names as they appear in the characters array.
 
 If you include a choice_suggestion, it must be a protagonist-action choice:
 - type: "decision", "action", or "dialogue" (never use "character_direction" or other types)
-- reason: string — why the protagonist must choose right now
+- reason: string — why the protagonist must choose right now (WRITE IN CHINESE)
 - options: exactly 3 objects, each with:
   - position: 0, 1, or 2
   - text: a SHORT concrete action the PROTAGONIST takes, written in first-person-adjacent
-    imperative (e.g. "进入酒馆询问掌柜", "翻越围墙逃脱", "直接质问对方身份")
+    imperative, IN CHINESE (e.g. "进入酒馆询问掌柜", "翻越围墙逃脱", "直接质问对方身份")
     NOT meta-narrative analysis. NOT "接受现实选择功法". NOT character trait descriptions.
-  - effects: {"route_change": "<brief description of where this choice leads>"}
+  - effects: {"route_change": "brief description in Chinese of where this choice leads"}
 
 The three option texts must describe what the PROTAGONIST DOES — observable actions,
 not internal states, narrative directions, or world-building commentary.

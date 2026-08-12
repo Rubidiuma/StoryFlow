@@ -27,7 +27,7 @@ def _naive_utc_now() -> datetime:
 
 def _require_non_blank(value: str, message: str) -> str:
     """Reject strings that contain no visible content."""
-    if not value.strip():
+    if not value or not value.strip():
         raise ValueError(message)
     return value
 
@@ -56,7 +56,7 @@ class StoryConfig(BaseModel):
     @classmethod
     def required_text_is_not_blank(cls, value: str) -> str:
         """Required configuration text must contain visible content."""
-        return _require_non_blank(value, "StoryConfig required text must not be blank")
+        return _require_non_blank(value, "创作设定必须填写实际内容，不能只用标点符号")
 
     @model_validator(mode="after")
     def check_total_length(self) -> Self:
@@ -73,7 +73,7 @@ class StoryConfig(BaseModel):
             self.ending_tendency,
         )
         if sum(len(value) for value in text_fields if value is not None) > 6000:
-            raise ValueError("StoryConfig text fields must not exceed 6000 characters")
+            raise ValueError("创作设定合计不能超过 6,000 字")
         return self
 
 
@@ -89,7 +89,7 @@ class CustomAction(BaseModel):
     @classmethod
     def text_is_not_blank(cls, value: str) -> str:
         """A custom action must contain at least one visible character."""
-        return _require_non_blank(value, "Custom action must not be blank")
+        return _require_non_blank(value, "自定义行动必须填写实际内容")
 
 
 class ChoiceOption(BaseModel):
