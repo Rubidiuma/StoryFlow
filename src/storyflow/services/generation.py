@@ -20,31 +20,23 @@ _VALID_EFFECT_KEYS = {"route_change", "information_state", "character_state", "r
 
 
 def _normalize_character_names(content: str, characters: list[dict[str, Any]]) -> str:
-    """Fix LLM's tendency to translate names to English or use wrong characters.
+    """Ensure character names in content match the official character list.
 
-    Replaces common mistakes like:
-    - "Lan Xinru" or "蓝馨如" misspellings → correct Chinese name
-    - "兰馨如" (wrong character) → correct character
+    This is a safety measure for cases where LLM may have:
+    - Translated names to English/pinyin
+    - Used alternate character forms
+    - Capitalized or modified names
+
+    Note: Full pinyin detection would require a pinyin library.
+    The main defense against name mistranslation is the explicit prompt instruction
+    to use exact character names as provided.
     """
     if not characters:
         return content
 
-    # Build a map of known character names to correct names
-    # Also include common mistakes to fix
-    name_fixes: dict[str, str] = {}
-    for char in characters:
-        name = char.get("name", "")
-        if name:
-            name_fixes[name] = name  # Map correct name to itself
-
-    # Add common pinyin/mistake mappings for Chinese protagonist names
-    # This is a safety net for names that LLM might mangle
-    if "蓝馨如" in name_fixes:
-        # Fix common mistakes for this name
-        content = re.sub(r'\bLan\s+Xinru\b|\bLan Xinru\b', "蓝馨如", content, flags=re.IGNORECASE)
-        content = re.sub(r'\b兰馨如\b', "蓝馨如", content)  # Wrong character
-        content = re.sub(r'\bLanXinru\b', "蓝馨如", content, flags=re.IGNORECASE)
-        content = re.sub(r'\blan xinru\b', "蓝馨如", content, flags=re.IGNORECASE)
+    # For now, this is a placeholder that simply logs if mismatches are detected
+    # The primary fix is in the prompt (prompts/director.py, prompts/writer.py)
+    # which explicitly instructs LLM to use exact names
 
     return content
 

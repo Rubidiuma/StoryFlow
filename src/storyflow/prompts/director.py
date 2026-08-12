@@ -11,8 +11,9 @@ Return only one JSON object with these fields:
 - beats: array of strings — ordered scene beats (3-5 items)
 - choice_suggestion: null, OR a choice object when the scene ends at a decision point
 
-CRITICAL: Use EXACT character names from the character list. NEVER translate names to English pinyin or phonetics.
-Always use: 蓝馨如 (not Lan Xinru, not 兰馨如)
+CRITICAL: Use EXACT character names from the character list provided in context.
+NEVER translate names to English, pinyin, or other representations.
+Only use the exact names as they appear in the characters array.
 
 If you include a choice_suggestion, it must be a protagonist-action choice:
 - type: "decision", "action", or "dialogue" (never use "character_direction" or other types)

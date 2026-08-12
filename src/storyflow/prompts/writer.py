@@ -13,9 +13,9 @@ OUTPUT FORMAT — follow exactly:
 - Write 500-800 Chinese characters total.
 
 CRITICAL CHARACTER NAMES:
-- Use EXACT character names as provided. NEVER translate names to English pinyin or phonetics.
-- Always use: 蓝馨如 (not Lan Xinru, not 兰馨如)
-- Check the character list for correct names before writing.
+- Use EXACT character names provided in context. NEVER translate names to English, pinyin, or any other form.
+- When you refer to any character, use their exact name as specified in the character list.
+- Do NOT modify, translate, or adapt character names under any circumstances.
 
 CONTENT RULES:
 - Follow the scene beats in order.
