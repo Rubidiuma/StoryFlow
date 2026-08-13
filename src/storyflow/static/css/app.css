@@ -189,6 +189,7 @@ p { margin-top: 0; }
 .field-improve-button:hover { color: var(--accent-strong); text-decoration: underline; }
 .field-improve-button:disabled { cursor: wait; color: var(--muted); }
 .field-incomplete-hint { color: var(--warm) !important; }
+.field-improvement-status.is-error { color: var(--danger); }
 .field-improvement-preview {
   display: grid;
   gap: 0.7rem;

@@ -60,6 +60,7 @@ class ImprovementControlParser(HTMLParser):
                 "data-adopt-improvement",
                 "data-regenerate-improvement",
                 "data-cancel-improvement",
+                "data-improvement-status",
             ):
                 if hook in attributes:
                     self.hooks[self.active_field].add(hook)
@@ -211,9 +212,21 @@ def test_create_form_exposes_explicit_ai_improvement_workflow(tmp_path: Path) ->
         "data-adopt-improvement",
         "data-regenerate-improvement",
         "data-cancel-improvement",
+        "data-improvement-status",
     }
     assert parser.fields == supported_fields
     assert parser.hooks == {field: expected_hooks for field in supported_fields}
+
+
+def test_create_page_cache_busts_interdependent_javascript(tmp_path: Path) -> None:
+    """A deploy must not pair the new wizard with a cached pre-feature API client."""
+    repository = make_repository(tmp_path)
+
+    with TestClient(create_app(repository=repository)) as client:
+        response = client.get("/create")
+
+    assert "/static/js/api.js?v=20260813-ai-improve" in response.text
+    assert "/static/js/create.js?v=20260813-ai-improve" in response.text
 
 
 def test_bookshelf_lists_stories_with_recent_status_and_resume_links(tmp_path: Path) -> None:

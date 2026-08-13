@@ -102,10 +102,17 @@
     container.querySelector("[data-improvement-text]").textContent = "";
   }
 
+  function setImprovementStatus(container, message, isError) {
+    const status = container.querySelector("[data-improvement-status]");
+    status.textContent = message;
+    status.classList.toggle("is-error", Boolean(isError));
+  }
+
   async function requestImprovement(container) {
     if (improvementBusy) return;
     error.hidden = true;
     setImprovementBusy(true, container);
+    setImprovementStatus(container, "正在生成建议…", false);
     const field = container.dataset.improvableField;
     try {
       const response = await window.storyflowApi.improveField({
@@ -118,9 +125,11 @@
       }
       container.querySelector("[data-improvement-text]").textContent = response.suggestion;
       container.querySelector("[data-improvement-preview]").hidden = false;
+      setImprovementStatus(container, "建议已生成，请预览后决定是否采用。", false);
     } catch (_requestError) {
       error.textContent = "AI 完善暂时不可用，请稍后重试；你仍可手动填写。";
       error.hidden = false;
+      setImprovementStatus(container, "完善失败，请稍后重试。", true);
     } finally {
       setImprovementBusy(false, container);
     }
@@ -143,6 +152,7 @@
       control.dispatchEvent(new Event("input", { bubbles: true }));
       hideImprovement(improvementContainer);
       showIncompleteHint(improvementContainer);
+      setImprovementStatus(improvementContainer, "已采用 AI 建议。", false);
       return;
     }
     if (improvementContainer && event.target.closest("[data-regenerate-improvement]")) {
@@ -151,6 +161,7 @@
     }
     if (improvementContainer && event.target.closest("[data-cancel-improvement]")) {
       hideImprovement(improvementContainer);
+      setImprovementStatus(improvementContainer, "", false);
       return;
     }
     if (event.target.closest("[data-next-step]") && validateStep()) {
