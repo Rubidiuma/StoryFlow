@@ -5,6 +5,7 @@ AI 驱动的中文互动小说生成平台。用户定义世界、主角和文�
 ## 特性
 
 - **故事圣经生成** — 基于 LLM 自动生成世界规则、主角核心与初始故事弧
+- **单字段 AI 完善** — 创建故事时可单独完善九项设定，先预览建议，点击“采用”后才替换原文
 - **流式阅读器** — Server-Sent Events 逐段推送场景内容，无选择时自动续写
 - **选择系统** — 预设选项 + 自定义行动，选择效果写入分层记忆
 - **分支与回退** — 在阅读器的历史选择旁创建新路线并重新选择，原分支完整保留
@@ -50,7 +51,7 @@ echo "your-api-key-here" > ~/.storyflow_key.txt
 ## 测试
 
 ```bash
-make test          # 运行所有测试（268 个）
+make test          # 运行所有测试
 make lint          # Ruff 代码风格检查
 make typecheck     # mypy 类型检查
 python scripts/secret_scan.py .   # 扫描意外提交的密钥
@@ -104,6 +105,7 @@ tests/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/stories` | 创建故事草稿 |
+| POST | `/api/story-config/improve-field` | 生成单个创作设定字段的中文完善建议 |
 | POST | `/stories/{id}/bible/generate` | 生成故事圣经 |
 | POST | `/stories/{id}/bible/confirm` | 确认圣经 → IDLE |
 | POST | `/api/stories/{id}/generate` | SSE 流式生成一个场景 |

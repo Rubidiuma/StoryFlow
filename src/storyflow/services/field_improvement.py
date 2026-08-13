@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 """Validation policy for AI-assisted story configuration fields."""
+
+from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-
 
 FIELD_LIMITS: dict[str, int] = {
     "genre": 200,
@@ -51,7 +50,7 @@ def filter_context(context: Mapping[str, str], *, target_field: str) -> dict[str
 def validate_suggestion(field: str, suggestion: object) -> str:
     """Normalize a provider suggestion and enforce the public response contract."""
     if not isinstance(suggestion, str):
-        raise ValueError("suggestion must be text")
+        raise TypeError("suggestion must be text")
     normalized = suggestion.strip()
     if not normalized or not _CHINESE_CHARACTER.search(normalized):
         raise ValueError("suggestion must contain Chinese text")

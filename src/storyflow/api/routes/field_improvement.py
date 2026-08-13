@@ -40,7 +40,7 @@ class ImproveFieldRequest(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def target_length(self) -> "ImproveFieldRequest":
+    def target_length(self) -> ImproveFieldRequest:
         if len(self.value) > FIELD_LIMITS[self.field]:
             raise ValueError("target field exceeds maximum length")
         return self
