@@ -225,8 +225,8 @@ def test_create_page_cache_busts_interdependent_javascript(tmp_path: Path) -> No
     with TestClient(create_app(repository=repository)) as client:
         response = client.get("/create")
 
-    assert "/static/js/api.js?v=20260813-ai-improve" in response.text
-    assert "/static/js/create.js?v=20260813-ai-improve" in response.text
+    assert "/static/js/api.js?v=20260813-content-validation" in response.text
+    assert "/static/js/create.js?v=20260813-content-validation" in response.text
 
 
 def test_bookshelf_lists_stories_with_recent_status_and_resume_links(tmp_path: Path) -> None:

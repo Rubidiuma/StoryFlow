@@ -8,6 +8,9 @@
     });
     const body = await response.json().catch(() => null);
     if (!response.ok) {
+      if (response.status === 422) {
+        throw new Error("内容不完整，请重新编辑。");
+      }
       const message = body && body.detail && (body.detail.message || body.detail.code);
       throw new Error(message || "请求未能完成，请稍后重试。");
     }
