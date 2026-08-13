@@ -8,7 +8,14 @@ import pytest
 from storyflow.db.database import Database
 from storyflow.db.repositories import StoryRepository
 from storyflow.domain.enums import ChoiceFrequency, StoryStatus
-from storyflow.domain.models import Branch, GenerationEvent, Story, StoryConfig, StorySegment
+from storyflow.domain.models import (
+    Branch,
+    GenerationEvent,
+    MemorySnapshot,
+    Story,
+    StoryConfig,
+    StorySegment,
+)
 from storyflow.llm.fake import FakeLLMClient, StreamInterruptedError
 from storyflow.services.generation import GenerationRequest, GenerationService
 
@@ -69,6 +76,48 @@ def valid_choice_suggestion() -> dict[str, object]:
             {"text": "Descend into the cloud", "effects": {"route": "cloud"}, "position": 2},
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_fifth_committed_scene_updates_the_branch_rolling_summary(tmp_path: Path) -> None:
+    _, repository, story, branch = make_runtime(tmp_path)
+    for sequence in range(1, 5):
+        current = repository.get_branch(branch.id)
+        assert current is not None
+        repository.commit_segment_bundle(
+            StorySegment(
+                story_id=story.id,
+                branch_id=branch.id,
+                parent_segment_id=current.head_segment_id,
+                sequence=sequence,
+                content=f"场景 {sequence}",
+                summary=f"摘要 {sequence}",
+                generation_key=f"summary-seed-{sequence}",
+                status="completed",
+            )
+        )
+    repository.save_memory_snapshot(
+        MemorySnapshot(story_id=story.id, branch_id=branch.id, rolling_summary="旧摘要")
+    )
+    llm_client = FakeLLMClient(
+        json_responses=[valid_plan(), {"rolling_summary": "前五幕压缩摘要"}],
+        text_responses=[["第五个场景。"]],
+    )
+
+    result = await GenerationService(repository, llm_client).generate(
+        GenerationRequest(
+            story_id=story.id,
+            branch_id=branch.id,
+            generation_key="summary-scene-5",
+            context={},
+        )
+    )
+
+    latest = repository.get_latest_memory_snapshot(branch.id)
+    assert result.segment is not None and result.segment.sequence == 5
+    assert latest is not None
+    assert latest.segment_id == result.segment.id
+    assert latest.rolling_summary == "前五幕压缩摘要"
 
 
 @pytest.mark.asyncio

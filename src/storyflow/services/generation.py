@@ -1,16 +1,16 @@
 from __future__ import annotations
+
 """Deterministic single-scene generation coordinator."""
 
 import asyncio
 import json
 import logging
-import re
 import sqlite3
 from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 _log = logging.getLogger(__name__)
 
@@ -105,6 +105,8 @@ from storyflow.llm.base import InvalidStructuredResponseError, LLMClient, LLMReq
 from storyflow.prompts.director import DIRECTOR_PROMPT_V1
 from storyflow.prompts.writer import WRITER_PROMPT_V1
 from storyflow.services.choice_policy import evaluate_choice_policy
+from storyflow.services.context_builder import SceneMemory
+from storyflow.services.memory import MemoryService
 
 
 class _DirectorRequestFailure(RuntimeError):
@@ -305,12 +307,57 @@ class GenerationService:
             )
         except (sqlite3.Error, LookupError, ValueError, RuntimeError):
             return GenerationResult(status=StoryStatus.ERROR, error_code="commit_failed")
+        await self._update_rolling_summary(committed_segment)
         return GenerationResult(
             status=committed_story.status,
             segment=committed_segment,
             choice_point=self.repository.get_choice_point_for_segment(committed_segment.id),
             content=committed_segment.content,
         )
+
+    async def _update_rolling_summary(self, segment: StorySegment) -> None:
+        """Best-effort rollup after a durable scene commit."""
+        if not MemoryService.should_trigger_rolling_summary(segment.sequence):
+            return
+        try:
+            snapshot = self.repository.get_latest_memory_snapshot(segment.branch_id)
+            if snapshot is None:
+                from storyflow.domain.models import MemorySnapshot
+
+                snapshot = MemorySnapshot(
+                    story_id=segment.story_id,
+                    branch_id=segment.branch_id,
+                    segment_id=segment.id,
+                    context_version=1,
+                )
+            path = self.repository.list_branch_path(segment.branch_id)
+            scenes = [
+                SceneMemory(
+                    sequence=item.sequence,
+                    content=item.content,
+                    summary=item.summary,
+                )
+                for item in path[-5:]
+            ]
+            updated = await MemoryService.update_rolling_summary(
+                snapshot, scenes, self.llm_client
+            )
+            if updated.rolling_summary == snapshot.rolling_summary:
+                return
+            self.repository.save_memory_snapshot(
+                updated.model_copy(
+                    update={"id": uuid4(), "segment_id": segment.id},
+                    deep=True,
+                )
+            )
+        except Exception:  # noqa: BLE001 - summaries cannot invalidate committed prose
+            _log.warning(
+                "Rolling summary update failed for story=%s branch=%s sequence=%s",
+                segment.story_id,
+                segment.branch_id,
+                segment.sequence,
+                exc_info=True,
+            )
 
     async def _generate_plan(self, context: Mapping[str, object]) -> ScenePlan | None:
         """Validate a Director response, retrying one structural failure only."""

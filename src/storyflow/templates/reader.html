@@ -25,6 +25,16 @@
             {{ status_labels[story.status] }}
           </span>
         </div>
+        <div class="reader-tools" aria-label="阅读工具">
+          <button class="button button-secondary button-small" type="button"
+                  data-summary-toggle aria-expanded="false" aria-controls="story-summary">
+            剧情摘要
+          </button>
+          <a class="button button-secondary button-small"
+             href="/api/stories/{{ story.id }}/export.md?branch={{ branch.id }}">
+            导出 Markdown
+          </a>
+        </div>
         {% if branches | length > 1 %}
         <nav class="branch-nav" data-view="branch-list" aria-label="分支列表">
           {% for b in branches %}
@@ -37,12 +47,32 @@
         {% endif %}
       </header>
 
+      <section id="story-summary" class="story-summary" data-view="story-summary" hidden>
+        <h2>剧情摘要</h2>
+        {% if visible_summary %}
+        <p>{{ visible_summary }}</p>
+        {% if summary_source == "stage" %}<small>根据当前场景整理，完成五个场景后会自动压缩更新。</small>{% endif %}
+        {% else %}
+        <p>故事尚未开始，生成正文后这里会出现剧情回顾。</p>
+        {% endif %}
+      </section>
+
       <div class="reader-error" role="alert" aria-live="polite" hidden></div>
 
       <section class="segment-list" aria-label="故事正文">
         {% for seg in segments %}
         <article class="segment" data-sequence="{{ seg.sequence }}" data-segment-id="{{ seg.id }}">
           <p>{{ seg.content }}</p>
+          {% if history_choices.get(seg.id) %}
+          {% set history = history_choices.get(seg.id) %}
+          <aside class="history-choice" aria-label="历史选择">
+            <span>你的选择：{{ history.selected_text }}</span>
+            <button class="button button-secondary button-small" type="button"
+                    data-create-branch data-choice-id="{{ history.choice_id }}">
+              从这里重新选择
+            </button>
+          </aside>
+          {% endif %}
         </article>
         {% endfor %}
         <div class="segment-stream" aria-live="polite" aria-label="生成中的内容"></div>

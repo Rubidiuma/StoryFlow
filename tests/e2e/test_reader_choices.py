@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from uuid import UUID
 
 from starlette.exceptions import StarletteDeprecationWarning
 
@@ -29,7 +30,6 @@ from storyflow.domain.models import (
     StorySegment,
 )
 from storyflow.main import create_app
-
 
 _CONFIG = StoryConfig(
     genre="悬疑",
@@ -150,6 +150,34 @@ def test_paused_reader_has_resume_not_autogenerate(tmp_path: Path) -> None:
     assert "data-autogenerate" not in response.text
 
 
+def test_reader_exposes_summary_export_and_historical_branch_action(tmp_path: Path) -> None:
+    db, repo = _setup(tmp_path)
+    story, branch = _make_story_with_branch(repo)
+    seg, choice = _commit_choice_segment(repo, story, branch)
+    story = _force_status(db, story, StoryStatus.WAITING_CHOICE)
+    repo.submit_choice(choice.id, choice.version, option_id=choice.options[0].id)
+    repo.save_memory_snapshot(
+        MemorySnapshot(
+            story_id=story.id,
+            branch_id=branch.id,
+            segment_id=seg.id,
+            rolling_summary="李云已经进入海底基地。",
+        )
+    )
+    client = TestClient(create_app(repository=repo))
+
+    response = client.get(f"/stories/{story.id}/reader?branch={branch.id}")
+
+    assert response.status_code == 200
+    assert "剧情摘要" in response.text
+    assert "李云已经进入海底基地。" in response.text
+    assert "导出 Markdown" in response.text
+    assert f"/api/stories/{story.id}/export.md?branch={branch.id}" in response.text
+    assert "从这里重新选择" in response.text
+    assert choice.options[0].text in response.text
+    assert "route_change" not in response.text
+
+
 def test_branch_fork_api_returns_new_branch_id(tmp_path: Path) -> None:
     """POST /api/choices/{id}/branch on a selected choice returns a new branch."""
     db, repo = _setup(tmp_path)
@@ -175,8 +203,16 @@ def test_branch_fork_api_returns_new_branch_id(tmp_path: Path) -> None:
     assert response.status_code == 200
     data = response.json()
     assert "branch_id" in data
+    assert "choice_id" in data
     assert data["story_id"] == str(story.id)
     assert data["fork_segment_id"] == str(seg.id)
+    updated_story = repo.get_story(story.id)
+    pending_choice = repo.get_current_choice_for_branch(data["branch_id"])
+    assert updated_story is not None
+    assert updated_story.current_branch_id == UUID(data["branch_id"])
+    assert updated_story.status is StoryStatus.WAITING_CHOICE
+    assert pending_choice is not None
+    assert data["choice_id"] == str(pending_choice.id)
 
 
 def test_reader_with_branch_param_shows_correct_branch(tmp_path: Path) -> None:
@@ -202,3 +238,29 @@ def test_reader_with_branch_param_shows_correct_branch(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert f'data-branch-id="{new_branch.id}"' in response.text
+
+
+def test_forked_historical_choice_can_select_a_different_option(tmp_path: Path) -> None:
+    db, repo = _setup(tmp_path)
+    story, branch = _make_story_with_branch(repo)
+    seg, choice = _commit_choice_segment(repo, story, branch)
+    repo.save_memory_snapshot(
+        MemorySnapshot(story_id=story.id, branch_id=branch.id, segment_id=seg.id)
+    )
+    _force_status(db, story, StoryStatus.WAITING_CHOICE)
+    repo.submit_choice(choice.id, choice.version, option_id=choice.options[0].id)
+    client = TestClient(create_app(repository=repo))
+    fork = client.post(f"/api/choices/{choice.id}/branch", json={"name": "另一条路"})
+    pending = repo.get_current_choice_for_branch(UUID(fork.json()["branch_id"]))
+    assert pending is not None
+
+    response = client.post(
+        f"/api/choices/{pending.id}/select",
+        json={"choice_version": pending.version, "option_id": str(pending.options[1].id)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["story_status"] == "IDLE"
+    selected = repo.get_current_choice_for_branch(UUID(fork.json()["branch_id"]))
+    assert selected is not None
+    assert selected.selected_option_id == pending.options[1].id

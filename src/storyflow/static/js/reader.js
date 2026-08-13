@@ -11,6 +11,43 @@
   let activeRequest = false;
   let sceneCount = page.querySelectorAll(".segment").length;
 
+  const summaryToggle = page.querySelector("[data-summary-toggle]");
+  const summaryPanel = page.querySelector("[data-view='story-summary']");
+  if (summaryToggle && summaryPanel) {
+    summaryToggle.addEventListener("click", () => {
+      const expanded = summaryToggle.getAttribute("aria-expanded") === "true";
+      summaryToggle.setAttribute("aria-expanded", String(!expanded));
+      summaryPanel.hidden = expanded;
+    });
+  }
+
+  page.addEventListener("click", async (event) => {
+    const branchButton = event.target.closest("[data-create-branch]");
+    if (!branchButton || branchButton.disabled) return;
+    const suggested = `新路线 ${new Date().toLocaleString("zh-CN", { hour12: false })}`;
+    const entered = window.prompt("为新路线命名（原路线会完整保留）", suggested);
+    if (entered === null) return;
+    branchButton.disabled = true;
+    _clearError();
+    try {
+      const response = await fetch(`/api/choices/${branchButton.dataset.choiceId}/branch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: entered.trim() || suggested }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body) {
+        _showError("无法创建新路线，请稍后重试。");
+        branchButton.disabled = false;
+        return;
+      }
+      window.location.assign(`/stories/${storyId}/reader?branch=${body.branch_id}`);
+    } catch {
+      _showError("网络错误，无法创建新路线。");
+      branchButton.disabled = false;
+    }
+  });
+
   // Inject a live "generating" indicator just before reader-controls
   const genIndicator = document.createElement("div");
   genIndicator.className = "reader-generating";

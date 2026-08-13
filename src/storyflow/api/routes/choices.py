@@ -62,6 +62,7 @@ class CreateBranchResponse(BaseModel):
     """Stable public result for a successfully created fork branch."""
 
     branch_id: UUID
+    choice_id: UUID
     story_id: UUID
     fork_segment_id: UUID
     memory_snapshot_id: UUID
@@ -188,8 +189,11 @@ def create_choice_router(
         except ChoiceNotSelectedError as exc:
             raise _choice_error(status.HTTP_409_CONFLICT, "choice_not_selected") from exc
         assert new_branch.fork_segment_id is not None
+        pending_choice = repository.get_current_choice_for_branch(new_branch.id)
+        assert pending_choice is not None
         return CreateBranchResponse(
             branch_id=new_branch.id,
+            choice_id=pending_choice.id,
             story_id=new_branch.story_id,
             fork_segment_id=new_branch.fork_segment_id,
             memory_snapshot_id=new_snapshot.id,
@@ -219,4 +223,4 @@ def _choice_error(
     )
 
 
-__all__ = ["create_choice_router", "CreateBranchRequest", "CreateBranchResponse"]
+__all__ = ["CreateBranchRequest", "CreateBranchResponse", "create_choice_router"]

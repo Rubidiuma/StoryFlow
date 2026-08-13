@@ -537,6 +537,38 @@ class StoryRepository:
             ).fetchone()
         return ChoicePoint.model_validate_json(row["payload"]) if row else None
 
+    def get_current_choice_for_branch(self, branch_id: UUID) -> ChoicePoint | None:
+        """Resolve the choice currently waiting at a normal or historical branch head."""
+        with self.database.read() as connection:
+            branch = connection.execute(
+                """
+                SELECT fork_choice_id, fork_segment_id, head_segment_id
+                FROM branches WHERE id = ?
+                """,
+                (str(branch_id),),
+            ).fetchone()
+            if branch is None or branch["head_segment_id"] is None:
+                return None
+            if (
+                branch["fork_choice_id"] is not None
+                and branch["fork_segment_id"] == branch["head_segment_id"]
+            ):
+                row = connection.execute(
+                    """
+                    SELECT choice_points.payload
+                    FROM choice_options
+                    JOIN choice_points ON choice_points.id = choice_options.choice_point_id
+                    WHERE choice_options.id = ?
+                    """,
+                    (branch["fork_choice_id"],),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT payload FROM choice_points WHERE segment_id = ? ORDER BY rowid DESC",
+                    (branch["head_segment_id"],),
+                ).fetchone()
+        return ChoicePoint.model_validate_json(row["payload"]) if row else None
+
     def get_choice_with_story(self, choice_id: UUID) -> tuple[ChoicePoint, Story] | None:
         """Return a choice and its owning story for pre-provider validation."""
         with self.database.read() as connection:
@@ -578,7 +610,17 @@ class StoryRepository:
                 SELECT choice_points.payload AS choice_payload,
                        choice_points.segment_id,
                        choice_points.story_id,
-                       story_segments.branch_id,
+                       COALESCE(
+                           (
+                               SELECT branches.id
+                               FROM branches
+                               JOIN choice_options
+                                   ON choice_options.id = branches.fork_choice_id
+                               WHERE choice_options.choice_point_id = choice_points.id
+                               LIMIT 1
+                           ),
+                           story_segments.branch_id
+                       ) AS branch_id,
                        stories.current_branch_id,
                        stories.payload AS story_payload
                 FROM choice_points
@@ -901,6 +943,7 @@ class StoryRepository:
                 """
                 SELECT
                     choice_points.id                                   AS choice_id,
+                    choice_points.payload                              AS choice_payload,
                     json_extract(choice_points.payload, '$.status')    AS choice_status,
                     choice_points.selected_option_id,
                     choice_points.story_id                             AS story_id,
@@ -920,7 +963,7 @@ class StoryRepository:
             story_id_str = row["story_id"]
             segment_id_str = row["segment_id"]
             original_branch_id_str = row["original_branch_id"]
-            fork_choice_option_id: str | None = row["selected_option_id"]
+            original_choice = ChoicePoint.model_validate_json(row["choice_payload"])
 
             # Find the pre-choice memory snapshot for the original branch.
             # submit_choice saves a snapshot with segment_id = fork_segment;
@@ -967,11 +1010,35 @@ class StoryRepository:
                     context_version=0,
                 )
 
+            pending_options = [
+                option.model_copy(update={"id": uuid4(), "choice_point_id": None})
+                for option in original_choice.options
+            ]
+            pending_choice = original_choice.model_copy(
+                update={
+                    "id": uuid4(),
+                    "options": pending_options,
+                    "status": "pending",
+                    "selected_option_id": None,
+                    "selected_custom_action": None,
+                    "selected_effects": None,
+                    "version": 1,
+                },
+                deep=True,
+            )
+            segment_row = connection.execute(
+                "SELECT payload FROM story_segments WHERE id = ?",
+                (segment_id_str,),
+            ).fetchone()
+            assert segment_row is not None
+            fork_segment = StorySegment.model_validate_json(segment_row["payload"])
+            self._insert_choice_point(connection, fork_segment, pending_choice)
+
             new_branch = Branch(
                 story_id=UUID(story_id_str),
                 parent_branch_id=UUID(original_branch_id_str),
                 fork_segment_id=UUID(segment_id_str),
-                fork_choice_id=UUID(fork_choice_option_id) if fork_choice_option_id else None,
+                fork_choice_id=pending_options[0].id,
                 name=branch_name,
                 # head_segment_id = fork_segment so generation chains from the fork point
                 head_segment_id=UUID(segment_id_str),
@@ -1014,6 +1081,24 @@ class StoryRepository:
                     _optional_id(new_snapshot.segment_id),
                     _json(new_snapshot),
                 ),
+            )
+
+            story_row = connection.execute(
+                "SELECT payload FROM stories WHERE id = ?", (story_id_str,)
+            ).fetchone()
+            assert story_row is not None
+            current_story = Story.model_validate_json(story_row["payload"])
+            updated_story = current_story.model_copy(
+                update={
+                    "current_branch_id": new_branch.id,
+                    "status": StoryStatus.WAITING_CHOICE,
+                    "version": current_story.version + 1,
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
+                }
+            )
+            connection.execute(
+                "UPDATE stories SET current_branch_id = ?, payload = ? WHERE id = ?",
+                (str(new_branch.id), _json(updated_story), story_id_str),
             )
         return new_branch, new_snapshot
 

@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from storyflow.db.repositories import StoryRepository
 from storyflow.domain.enums import StoryStatus
+from storyflow.services.reader_view import build_history_choices, build_visible_summary
 
 _log = logging.getLogger(__name__)
 
@@ -95,6 +96,8 @@ def create_web_router(repository: StoryRepository | None) -> APIRouter:
                 name="reader.html",
                 context={"story": None, "branch": None, "segments": [],
                          "current_choice": None, "branches": [],
+                         "history_choices": {}, "visible_summary": "",
+                         "summary_source": "empty",
                          "status_labels": STATUS_LABELS},
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
@@ -106,6 +109,8 @@ def create_web_router(repository: StoryRepository | None) -> APIRouter:
                 name="reader.html",
                 context={"story": None, "branch": None, "segments": [],
                          "current_choice": None, "branches": [],
+                         "history_choices": {}, "visible_summary": "",
+                         "summary_source": "empty",
                          "status_labels": STATUS_LABELS},
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -114,9 +119,21 @@ def create_web_router(repository: StoryRepository | None) -> APIRouter:
         branch_obj = repository.get_branch(target_branch_id) if target_branch_id else None
         segments = repository.list_branch_path(target_branch_id) if target_branch_id else []
         current_choice = None
-        if story.status is StoryStatus.WAITING_CHOICE and segments:
-            current_choice = repository.get_choice_point_for_segment(segments[-1].id)
+        if (
+            story.status is StoryStatus.WAITING_CHOICE
+            and target_branch_id is not None
+            and target_branch_id == story.current_branch_id
+            and segments
+        ):
+            current_choice = repository.get_current_choice_for_branch(target_branch_id)
         branches = repository.list_branches(story_id)
+        history_choices = build_history_choices(repository, segments)
+        memory = (
+            repository.get_latest_memory_snapshot(target_branch_id)
+            if target_branch_id is not None
+            else None
+        )
+        visible_summary, summary_source = build_visible_summary(memory, segments)
         return templates.TemplateResponse(
             request=request,
             name="reader.html",
@@ -126,6 +143,9 @@ def create_web_router(repository: StoryRepository | None) -> APIRouter:
                 "segments": segments,
                 "current_choice": current_choice,
                 "branches": branches,
+                "history_choices": history_choices,
+                "visible_summary": visible_summary,
+                "summary_source": summary_source,
                 "status_labels": STATUS_LABELS,
             },
         )

@@ -34,6 +34,7 @@ def create_export_router(repository: StoryRepository | None) -> APIRouter:
     def export_story(
         story_id: UUID,
         request: Request,
+        branch: UUID | None = None,
         session_id: str | None = Depends(optional_session_id),
     ) -> Response:
         if repository is None:
@@ -43,7 +44,12 @@ def create_export_router(repository: StoryRepository | None) -> APIRouter:
             return Response(status_code=status.HTTP_404_NOT_FOUND)
         if session_id is not None and story.session_id != session_id:
             return Response(status_code=status.HTTP_404_NOT_FOUND)
-        content = export_branch_markdown(repository, story)
+        target_branch_id = branch or story.current_branch_id
+        if target_branch_id is not None:
+            target_branch = repository.get_branch(target_branch_id)
+            if target_branch is None or target_branch.story_id != story.id:
+                return Response(status_code=status.HTTP_404_NOT_FOUND)
+        content = export_branch_markdown(repository, story, target_branch_id)
         filename = safe_filename(story.title or "story")
         return Response(
             content=content,

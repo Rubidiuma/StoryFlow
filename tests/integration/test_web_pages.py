@@ -232,7 +232,7 @@ def test_confirmed_story_shows_reader_entry_and_recent_status(tmp_path: Path) ->
     assert response.status_code == 200
     assert 'data-view="reader-entry"' in response.text
     assert "继续阅读" in response.text
-    assert "IDLE" in response.text
+    assert "可继续" in response.text
     assert 'data-view="bible-confirmation"' not in response.text
 
 

@@ -9,8 +9,12 @@ from storyflow.db.repositories import StoryRepository
 from storyflow.domain.models import Story
 
 
-def export_branch_markdown(repository: StoryRepository, story: Story) -> str:
-    """Return a Markdown document for the story's current branch path."""
+def export_branch_markdown(
+    repository: StoryRepository,
+    story: Story,
+    branch_id: UUID | None = None,
+) -> str:
+    """Return a Markdown document for the requested or current branch path."""
     cfg = story.config
     lines: list[str] = []
 
@@ -32,10 +36,11 @@ def export_branch_markdown(repository: StoryRepository, story: Story) -> str:
     lines.append("---")
     lines.append("")
 
-    if story.current_branch_id is None:
+    target_branch_id = branch_id or story.current_branch_id
+    if target_branch_id is None:
         return "\n".join(lines)
 
-    segments = repository.list_branch_path(story.current_branch_id)
+    segments = repository.list_branch_path(target_branch_id)
     for seg in segments:
         lines.append(f"## 场景 {seg.sequence}")
         lines.append("")

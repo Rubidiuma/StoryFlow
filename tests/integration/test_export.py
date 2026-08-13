@@ -30,7 +30,6 @@ from storyflow.domain.models import (
 )
 from storyflow.main import create_app
 
-
 _CONFIG = StoryConfig(
     genre="奇幻",
     structure="三幕式",
@@ -98,7 +97,7 @@ def test_export_contains_title_and_genre_setting(tmp_path: Path) -> None:
     _add_segment(repo, story, branch, 1, "弥拉跨越了第一道云桥。")
     client = TestClient(create_app(repository=repo))
 
-    response = client.get(f"/api/stories/{story.id}/export.md")
+    response = client.get(f"/api/stories/{story.id}/export.md?branch={branch.id}")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/markdown")
@@ -114,7 +113,7 @@ def test_export_contains_segments_in_sequence_order(tmp_path: Path) -> None:
     _add_segment(repo, story, branch, 2, "第二场景：她到达了云海边缘。")
     client = TestClient(create_app(repository=repo))
 
-    response = client.get(f"/api/stories/{story.id}/export.md")
+    response = client.get(f"/api/stories/{story.id}/export.md?branch={branch.id}")
 
     text = response.text
     assert "第一场景：弥拉出发了。" in text
@@ -209,11 +208,39 @@ def test_export_excludes_sibling_branch_segments(tmp_path: Path) -> None:
     repo.commit_segment_bundle(sibling_seg, None)
 
     client = TestClient(create_app(repository=repo))
-    response = client.get(f"/api/stories/{story.id}/export.md")
+    response = client.get(
+        f"/api/stories/{story.id}/export.md?branch={branch.id}"
+    )
 
     assert response.status_code == 200
     assert "共同起点。" in response.text
     assert "这是另一条路的内容，不应出现。" not in response.text
+
+    fork_response = client.get(
+        f"/api/stories/{story.id}/export.md?branch={sibling.id}"
+    )
+    assert fork_response.status_code == 200
+    assert "这是另一条路的内容，不应出现。" in fork_response.text
+
+
+def test_export_rejects_branch_from_another_story(tmp_path: Path) -> None:
+    _, repo, story, _ = _setup(tmp_path)
+    other = repo.create_story(
+        Story(
+            session_id="other",
+            title="其他故事",
+            choice_frequency=_CONFIG.choice_frequency,
+            config=_CONFIG,
+        )
+    )
+    other_branch = repo.create_branch(Branch(story_id=other.id, name="Other"))
+    client = TestClient(create_app(repository=repo))
+
+    response = client.get(
+        f"/api/stories/{story.id}/export.md?branch={other_branch.id}"
+    )
+
+    assert response.status_code == 404
 
 
 def test_export_returns_404_for_missing_story(tmp_path: Path) -> None:

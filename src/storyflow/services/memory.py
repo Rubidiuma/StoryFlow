@@ -211,7 +211,7 @@ class MemoryService:
         from storyflow.prompts.memory import ROLLING_SUMMARY_PROMPT_V1
 
         try:
-            response = await llm_client.generate_json(  # type: ignore[union-attr]
+            response = await llm_client.generate_json(  # type: ignore[attr-defined]
                 prompt=ROLLING_SUMMARY_PROMPT_V1,
                 context={
                     "rolling_summary": snapshot.rolling_summary,
@@ -244,7 +244,7 @@ class MemoryService:
         """Generate the next story arc via LLM and return it with story/branch ids set."""
         from storyflow.prompts.memory import NEXT_ARC_PROMPT_V1
 
-        response = await llm_client.generate_json(  # type: ignore[union-attr]
+        response = await llm_client.generate_json(  # type: ignore[attr-defined]
             prompt=NEXT_ARC_PROMPT_V1,
             context={
                 "world_rules": bible.world_rules,

@@ -31,7 +31,6 @@ from storyflow.domain.models import (
 )
 from storyflow.main import create_app
 
-
 _CONFIG = StoryConfig(
     genre="fantasy",
     structure="three_act",
@@ -210,6 +209,20 @@ def test_create_fork_returns_correct_parent_and_fork_segment(tmp_path: Path) -> 
     assert str(new_branch.fork_segment_id) == str(seg2.id)
     # head must equal fork_segment so the generation chain is rooted at the fork point
     assert str(new_branch.head_segment_id) == str(seg2.id)
+
+    updated_story = repo.get_story(story.id)
+    pending_choice = repo.get_current_choice_for_branch(new_branch.id)
+    assert updated_story is not None
+    assert updated_story.current_branch_id == new_branch.id
+    assert updated_story.status is StoryStatus.WAITING_CHOICE
+    assert pending_choice is not None
+    assert pending_choice.id != choice.id
+    assert pending_choice.status == "pending"
+    assert pending_choice.selected_option_id is None
+    assert pending_choice.selected_custom_action is None
+    assert [option.text for option in pending_choice.options] == [
+        option.text for option in choice.options
+    ]
 
 
 def test_original_branch_head_unchanged_after_fork(tmp_path: Path) -> None:

@@ -7,7 +7,6 @@ import warnings
 from pathlib import Path
 from uuid import UUID
 
-import pytest
 from starlette.exceptions import StarletteDeprecationWarning
 
 with warnings.catch_warnings():
@@ -20,8 +19,7 @@ with warnings.catch_warnings():
 
 from storyflow.db.database import Database
 from storyflow.db.repositories import StoryRepository
-from storyflow.domain.enums import ChoiceFrequency, StoryStatus
-from storyflow.domain.models import Branch, Story, StoryConfig
+from storyflow.domain.enums import StoryStatus
 from storyflow.llm.fake import FakeLLMClient
 from storyflow.main import create_app
 
@@ -90,7 +88,7 @@ def test_full_journey_create_bible_scenes_choice_branch_export(
       4. Submit preset choice → story returns to IDLE
       5. Generate scene 3 (post-choice direction)
       6. Create fork branch from the original choice
-      7. Export current branch → excludes fork segment
+      7. Export current fork and explicit original branch independently
     """
     script = _load_script()
     repo, llm, client = _setup_app(tmp_path, script)
@@ -193,7 +191,7 @@ def test_full_journey_create_bible_scenes_choice_branch_export(
     assert fork_branch is not None
     assert fork_branch.parent_branch_id == branch_id
 
-    # ── 7. Export current branch ───────────────────────────────────────────
+    # ── 7. Export current fork branch ──────────────────────────────────────
     export_resp = client.get(f"/api/stories/{story_id}/export.md")
     assert export_resp.status_code == 200
     assert export_resp.headers["content-type"].startswith("text/markdown")
@@ -201,7 +199,13 @@ def test_full_journey_create_bible_scenes_choice_branch_export(
     assert "云海尽头" in text
     assert script["scene1_text"][:20] in text
     assert script["scene2_text"][:20] in text
-    assert script["scene3_text"][:20] in text
+    assert script["scene3_text"][:20] not in text
+
+    original_export = client.get(
+        f"/api/stories/{story_id}/export.md?branch={branch_id}"
+    )
+    assert original_export.status_code == 200
+    assert script["scene3_text"][:20] in original_export.text
     # Selected choice text appears; its effects key does not
     assert "用制图师身份正面交涉" in text
     assert "negotiate" not in text
