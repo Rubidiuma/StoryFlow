@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from storyflow.api.routes.choices import create_choice_router
 from storyflow.api.routes.export import create_export_router
+from storyflow.api.routes.field_improvement import create_field_improvement_router
 from storyflow.api.routes.generation import create_generation_router
 from storyflow.api.routes.stories import create_story_router
 from storyflow.api.routes.web import WEB_STATIC_DIRECTORY, create_web_router
@@ -53,6 +54,7 @@ def create_app(
     app.include_router(create_story_router(repository, llm_client))
     app.include_router(create_choice_router(repository, llm_client))
     app.include_router(create_export_router(repository))
+    app.include_router(create_field_improvement_router(llm_client))
     app.include_router(
         create_generation_router(
             repository,
