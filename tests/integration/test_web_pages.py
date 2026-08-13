@@ -35,6 +35,40 @@ class FormFieldParser(HTMLParser):
             self.fields[name] = attributes
 
 
+class ImprovementControlParser(HTMLParser):
+    """Collect improvement hooks and the form field each hook belongs to."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.active_field: str | None = None
+        self.fields: set[str] = set()
+        self.hooks: dict[str, set[str]] = {}
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        attributes = dict(attrs)
+        field = attributes.get("data-improvable-field")
+        if tag == "label" and field:
+            self.active_field = field
+            self.fields.add(field)
+            self.hooks[field] = set()
+        if self.active_field:
+            for hook in (
+                "data-improve-field",
+                "data-improvement-preview",
+                "data-adopt-improvement",
+                "data-regenerate-improvement",
+                "data-cancel-improvement",
+            ):
+                if hook in attributes:
+                    self.hooks[self.active_field].add(hook)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "label":
+            self.active_field = None
+
+
 def make_repository(tmp_path: Path) -> StoryRepository:
     """Create the initialized repository used by real page requests."""
     database = Database(tmp_path / "storyflow.sqlite3")
@@ -149,6 +183,37 @@ def test_create_form_matches_api_fields_and_length_constraints(tmp_path: Path) -
         "ending_tendency": "1000",
     }
     assert parser.forms[0]["data-total-maxlength"] == "6000"
+
+
+def test_create_form_exposes_explicit_ai_improvement_workflow(tmp_path: Path) -> None:
+    """Every supported field must expose preview actions without covering other inputs."""
+    repository = make_repository(tmp_path)
+
+    with TestClient(create_app(repository=repository)) as client:
+        response = client.get("/create")
+
+    parser = ImprovementControlParser()
+    parser.feed(response.text)
+    supported_fields = {
+        "genre",
+        "structure",
+        "world_background",
+        "protagonist_desc",
+        "important_supporting_characters",
+        "style",
+        "required_elements",
+        "forbidden_elements",
+        "ending_tendency",
+    }
+    expected_hooks = {
+        "data-improve-field",
+        "data-improvement-preview",
+        "data-adopt-improvement",
+        "data-regenerate-improvement",
+        "data-cancel-improvement",
+    }
+    assert parser.fields == supported_fields
+    assert parser.hooks == {field: expected_hooks for field in supported_fields}
 
 
 def test_bookshelf_lists_stories_with_recent_status_and_resume_links(tmp_path: Path) -> None:

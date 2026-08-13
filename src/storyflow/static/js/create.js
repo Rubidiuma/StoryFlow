@@ -7,7 +7,9 @@
   const steps = Array.from(form.querySelectorAll("[data-step]"));
   const indicators = Array.from(document.querySelectorAll("[data-step-indicator]"));
   const error = form.querySelector("[role='alert']");
+  const improvableFields = Array.from(form.querySelectorAll("[data-improvable-field]"));
   let currentStep = 0;
+  let improvementBusy = false;
 
   function sessionId() {
     let value = window.localStorage.getItem("storyflow-session-id");
@@ -65,8 +67,92 @@
     return names.reduce((total, name) => total + String(data.get(name) || "").length, 0);
   }
 
+  function isIncomplete(value) {
+    return (String(value).match(/[\u3400-\u9fffA-Za-z0-9]/g) || []).length < 6;
+  }
+
+  function fieldControl(container) {
+    return container.querySelector("input, textarea");
+  }
+
+  function showIncompleteHint(container) {
+    const hint = container.querySelector("[data-incomplete-hint]");
+    const control = fieldControl(container);
+    hint.hidden = !isIncomplete(control.value);
+  }
+
+  function setImprovementBusy(busy, activeContainer) {
+    improvementBusy = busy;
+    improvableFields.forEach((container) => {
+      const button = container.querySelector("[data-improve-field]");
+      button.disabled = busy;
+      button.textContent = busy && container === activeContainer ? "正在完善…" : "AI 完善";
+    });
+  }
+
+  function improvementContext() {
+    return Object.fromEntries(improvableFields.map((container) => [
+      container.dataset.improvableField,
+      fieldControl(container).value,
+    ]));
+  }
+
+  function hideImprovement(container) {
+    container.querySelector("[data-improvement-preview]").hidden = true;
+    container.querySelector("[data-improvement-text]").textContent = "";
+  }
+
+  async function requestImprovement(container) {
+    if (improvementBusy) return;
+    error.hidden = true;
+    setImprovementBusy(true, container);
+    const field = container.dataset.improvableField;
+    try {
+      const response = await window.storyflowApi.improveField({
+        field,
+        value: fieldControl(container).value,
+        context: improvementContext(),
+      });
+      if (response.field !== field || typeof response.suggestion !== "string") {
+        throw new Error("invalid improvement response");
+      }
+      container.querySelector("[data-improvement-text]").textContent = response.suggestion;
+      container.querySelector("[data-improvement-preview]").hidden = false;
+    } catch (_requestError) {
+      error.textContent = "AI 完善暂时不可用，请稍后重试；你仍可手动填写。";
+      error.hidden = false;
+    } finally {
+      setImprovementBusy(false, container);
+    }
+  }
+
+  improvableFields.forEach((container) => {
+    fieldControl(container).addEventListener("blur", () => showIncompleteHint(container));
+  });
+
   form.elements.session_id.value = sessionId();
   form.addEventListener("click", (event) => {
+    const improvementContainer = event.target.closest("[data-improvable-field]");
+    if (improvementContainer && event.target.closest("[data-improve-field]")) {
+      requestImprovement(improvementContainer);
+      return;
+    }
+    if (improvementContainer && event.target.closest("[data-adopt-improvement]")) {
+      const control = fieldControl(improvementContainer);
+      control.value = improvementContainer.querySelector("[data-improvement-text]").textContent;
+      control.dispatchEvent(new Event("input", { bubbles: true }));
+      hideImprovement(improvementContainer);
+      showIncompleteHint(improvementContainer);
+      return;
+    }
+    if (improvementContainer && event.target.closest("[data-regenerate-improvement]")) {
+      requestImprovement(improvementContainer);
+      return;
+    }
+    if (improvementContainer && event.target.closest("[data-cancel-improvement]")) {
+      hideImprovement(improvementContainer);
+      return;
+    }
     if (event.target.closest("[data-next-step]") && validateStep()) {
       showStep(currentStep + 1);
     }

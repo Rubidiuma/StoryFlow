@@ -175,6 +175,34 @@ p { margin-top: 0; }
 .field { display: grid; min-width: 0; gap: 0.45rem; font-weight: 700; }
 .field-wide { grid-column: 1 / -1; }
 .field small { color: var(--muted); font-weight: 450; }
+.field-improvement-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; }
+.field-improve-button {
+  width: max-content;
+  border: 0;
+  padding: 0.1rem 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+.field-improve-button:hover { color: var(--accent-strong); text-decoration: underline; }
+.field-improve-button:disabled { cursor: wait; color: var(--muted); }
+.field-incomplete-hint { color: var(--warm) !important; }
+.field-improvement-preview {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.25rem;
+  border: 1px solid #bdd5c7;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  background: var(--accent-soft);
+  font-weight: 450;
+}
+.field-improvement-preview > strong { color: var(--accent-strong); }
+.field-improvement-preview [data-improvement-text] { white-space: pre-wrap; overflow-wrap: anywhere; }
+.field-improvement-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.field-improvement-actions .button { min-height: 2.35rem; padding: 0.45rem 0.9rem; font-size: 0.86rem; }
 input, textarea, select { width: 100%; min-width: 0; border: 1px solid #cbd2c9; border-radius: 0.65rem; padding: 0.72rem 0.8rem; background: white; color: var(--ink); }
 textarea { resize: vertical; line-height: 1.55; }
 input::placeholder, textarea::placeholder { color: #8c958e; }
@@ -264,6 +292,7 @@ input::placeholder, textarea::placeholder { color: #8c958e; }
   .field-grid, .bible-grid { grid-template-columns: minmax(0, 1fr); }
   .bible-card-wide { grid-column: auto; }
   .wizard-actions .button, .story-actions .button { flex: 1 1 auto; }
+  .field-improvement-actions .button { flex: 1 1 auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

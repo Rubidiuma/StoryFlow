@@ -27,18 +27,21 @@
             <span>小说标题 <small>选填</small></span>
             <input name="title" value="{{ source_story.title if source_story else '' }}" placeholder="例如：云海尽头的灯塔">
           </label>
-          <label class="field">
+          <label class="field" data-improvable-field="genre">
             <span>题材</span>
             <input name="genre" value="{{ source_story.config.genre if source_story else '' }}" placeholder="奇幻、悬疑、科幻……" required>
+            {% include "partials/field_improvement.html" %}
           </label>
-          <label class="field">
+          <label class="field" data-improvable-field="structure">
             <span>叙事结构</span>
             <input name="structure" value="{{ source_story.config.structure if source_story else '' }}" placeholder="三幕式、英雄之旅……" required>
+            {% include "partials/field_improvement.html" %}
           </label>
-          <label class="field field-wide">
+          <label class="field field-wide" data-improvable-field="world_background">
             <span>世界背景</span>
             <textarea name="world_background" maxlength="2000" rows="6" placeholder="这个世界如何运转？有什么独特规则？" required>{{ source_story.config.world_background if source_story else '' }}</textarea>
             <small>最多 2,000 字</small>
+            {% include "partials/field_improvement.html" %}
           </label>
         </div>
         <div class="wizard-actions wizard-actions-end">
@@ -50,18 +53,21 @@
         <legend>让人物带着声音登场</legend>
         <p class="step-help">清晰的欲望与文风，比堆叠设定更能推动故事。</p>
         <div class="field-grid">
-          <label class="field field-wide">
+          <label class="field field-wide" data-improvable-field="protagonist_desc">
             <span>主角描述</span>
             <textarea name="protagonist_desc" maxlength="2000" rows="5" placeholder="主角是谁？TA 渴望什么，又害怕什么？" required>{{ source_story.config.protagonist_desc if source_story else '' }}</textarea>
             <small>最多 2,000 字</small>
+            {% include "partials/field_improvement.html" %}
           </label>
-          <label class="field field-wide">
+          <label class="field field-wide" data-improvable-field="important_supporting_characters">
             <span>重要配角 <small>选填</small></span>
             <textarea name="important_supporting_characters" maxlength="1000" rows="4" placeholder="写下姓名、关系或冲突">{{ source_story.config.important_supporting_characters or '' if source_story else '' }}</textarea>
+            {% include "partials/field_improvement.html" %}
           </label>
-          <label class="field field-wide">
+          <label class="field field-wide" data-improvable-field="style">
             <span>文风</span>
             <textarea name="style" maxlength="500" rows="3" placeholder="例如：克制、明亮，有电影感" required>{{ source_story.config.style if source_story else '' }}</textarea>
+            {% include "partials/field_improvement.html" %}
           </label>
           <label class="field">
             <span>选择频率</span>
@@ -83,17 +89,20 @@
         <legend>写下故事的边界</legend>
         <p class="step-help">可选项帮助生成更稳定；全部文本总计不超过 6,000 字。</p>
         <div class="field-grid">
-          <label class="field field-wide">
+          <label class="field field-wide" data-improvable-field="required_elements">
             <span>必须出现的元素 <small>选填</small></span>
             <textarea name="required_elements" maxlength="1000" rows="3" placeholder="人物、地点、道具或事件">{{ source_story.config.required_elements or '' if source_story else '' }}</textarea>
+            {% include "partials/field_improvement.html" %}
           </label>
-          <label class="field field-wide">
+          <label class="field field-wide" data-improvable-field="forbidden_elements">
             <span>禁止出现的元素 <small>选填</small></span>
             <textarea name="forbidden_elements" maxlength="1000" rows="3" placeholder="不希望出现的内容">{{ source_story.config.forbidden_elements or '' if source_story else '' }}</textarea>
+            {% include "partials/field_improvement.html" %}
           </label>
-          <label class="field field-wide">
+          <label class="field field-wide" data-improvable-field="ending_tendency">
             <span>结局倾向 <small>选填</small></span>
             <textarea name="ending_tendency" maxlength="1000" rows="3" placeholder="开放、圆满、苦涩，或保持未知">{{ source_story.config.ending_tendency or '' if source_story else '' }}</textarea>
+            {% include "partials/field_improvement.html" %}
           </label>
         </div>
         <div class="cost-note">

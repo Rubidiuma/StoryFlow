@@ -24,6 +24,12 @@
     confirmBible(storyId) {
       return requestJson(`/stories/${storyId}/bible/confirm`, { method: "POST" });
     },
+    improveField(payload) {
+      return requestJson("/api/story-config/improve-field", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
   };
 
   async function runStoryAction(button, action) {
