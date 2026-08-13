@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Versioned server-sent events for one deterministic scene generation."""
 
 import asyncio
@@ -17,8 +18,9 @@ from starlette.responses import StreamingResponse
 
 from storyflow.api.dependencies import optional_session_id
 from storyflow.api.errors import generation_error_data, generation_http_error
-from storyflow.db.repositories import StoryRepository
+from storyflow.db.repositories import StoryNotFoundError, StoryRepository
 from storyflow.domain.enums import StoryStatus
+from storyflow.domain.models import Story
 from storyflow.llm.base import LLMClient
 from storyflow.security.rate_limit import RateLimiter
 from storyflow.services.generation import GenerationRequest, GenerationResult, GenerationService
@@ -70,6 +72,24 @@ def create_generation_router(
         if repository is not None and llm_client is not None
         else None
     )
+
+    @router.post("/{story_id}/pause", response_model=Story)
+    async def pause_story(story_id: UUID) -> Story:
+        if repository is None:
+            raise generation_http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "story_service_unavailable")
+        try:
+            return repository.request_pause(story_id)
+        except StoryNotFoundError as exc:
+            raise generation_http_error(status.HTTP_404_NOT_FOUND, "story_not_found") from exc
+
+    @router.post("/{story_id}/resume", response_model=Story)
+    async def resume_story(story_id: UUID) -> Story:
+        if repository is None:
+            raise generation_http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "story_service_unavailable")
+        try:
+            return repository.resume_story(story_id)
+        except StoryNotFoundError as exc:
+            raise generation_http_error(status.HTTP_404_NOT_FOUND, "story_not_found") from exc
 
     @router.post("/{story_id}/generate")
     async def generate_story(

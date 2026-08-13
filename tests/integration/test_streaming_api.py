@@ -398,6 +398,32 @@ def test_director_errors_emit_only_stable_redacted_data(
         assert connection.execute("SELECT COUNT(*) FROM story_segments").fetchone()[0] == 0
 
 
+def test_pause_and_resume_endpoints_persist_the_reader_control_state(tmp_path: Path) -> None:
+    database, repository, story, _ = make_runtime(tmp_path)
+    client = TestClient(create_app(repository=repository, llm_client=FakeLLMClient()))
+
+    paused = client.post(f"/api/stories/{story.id}/pause")
+
+    assert paused.status_code == 200
+    assert paused.json()["pause_requested"] is True
+    repository_story = repository.get_story(story.id)
+    assert repository_story is not None and repository_story.pause_requested is True
+
+    paused_story = repository_story.model_copy(
+        update={"status": StoryStatus.PAUSED}
+    )
+    with database.transaction() as connection:
+        connection.execute(
+            "UPDATE stories SET payload = ? WHERE id = ?",
+            (paused_story.model_dump_json(), str(story.id)),
+        )
+    resumed = client.post(f"/api/stories/{story.id}/resume")
+
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == "IDLE"
+    assert resumed.json()["pause_requested"] is False
+
+
 def test_missing_story_or_branch_returns_json_404_before_llm(tmp_path: Path) -> None:
     """Missing aggregate resources must not open a stream or spend a provider call."""
     _, repository, story, _ = make_runtime(tmp_path)

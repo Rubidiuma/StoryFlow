@@ -121,6 +121,33 @@ async def test_fifth_committed_scene_updates_the_branch_rolling_summary(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_pause_request_stops_after_committing_the_current_scene(tmp_path: Path) -> None:
+    _, repository, story, branch = make_runtime(tmp_path)
+    repository.request_pause(story.id)
+    llm_client = FakeLLMClient(
+        json_responses=[valid_plan()],
+        text_responses=[["当前场景仍然完整保存。"]],
+    )
+
+    result = await GenerationService(repository, llm_client).generate(
+        GenerationRequest(
+            story_id=story.id,
+            branch_id=branch.id,
+            generation_key="pause-after-scene",
+            context={},
+        )
+    )
+
+    persisted = repository.get_story(story.id)
+    assert result.segment is not None
+    assert result.content == "当前场景仍然完整保存。"
+    assert result.status is StoryStatus.PAUSED
+    assert persisted is not None
+    assert persisted.status is StoryStatus.PAUSED
+    assert persisted.pause_requested is False
+
+
+@pytest.mark.asyncio
 async def test_valid_no_choice_flow_records_states_and_commits_one_bundle(
     tmp_path: Path,
 ) -> None:

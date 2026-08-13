@@ -213,16 +213,31 @@
   const resumeBtn = page.querySelector("[data-resume]");
 
   if (resumeBtn) {
-    resumeBtn.addEventListener("click", () => location.reload());
+    resumeBtn.addEventListener("click", async () => {
+      resumeBtn.disabled = true;
+      try {
+        const response = await fetch(`/api/stories/${storyId}/resume`, { method: "POST" });
+        if (!response.ok) throw new Error("resume failed");
+        location.reload();
+      } catch {
+        resumeBtn.disabled = false;
+        _showError("恢复生成失败，请重试。");
+      }
+    });
   }
 
   if (pauseBtn) {
     pauseBtn.addEventListener("click", async () => {
       pauseBtn.disabled = true;
       try {
-        await fetch(`/api/stories/${storyId}/pause`, { method: "POST" });
-      } catch {}
-      location.reload();
+        const response = await fetch(`/api/stories/${storyId}/pause`, { method: "POST" });
+        if (!response.ok) throw new Error("pause failed");
+        pauseBtn.textContent = "将在本场景结束后暂停";
+        _setGenerating(false);
+      } catch {
+        pauseBtn.disabled = false;
+        _showError("暂停失败，请重试。");
+      }
     });
   }
 

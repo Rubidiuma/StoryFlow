@@ -264,9 +264,11 @@ class GenerationService:
         if isinstance(characters, list):
             content = _normalize_character_names(content, characters)
         self._advance(state_machine, state_sequence, StoryStatus.COMMITTING)
+        latest_story = self.repository.get_story(story.id)
+        pause_requested = bool(latest_story and latest_story.pause_requested)
         if choice is not None:
             final_status = StoryStatus.WAITING_CHOICE
-        elif policy.decision == "pause":
+        elif pause_requested or policy.decision == "pause":
             final_status = StoryStatus.PAUSED
         else:
             final_status = StoryStatus.IDLE
@@ -298,8 +300,11 @@ class GenerationService:
             state_sequence=state_sequence,
         )
         try:
+            story_for_commit = (latest_story or story).model_copy(
+                update={"pause_requested": False}
+            )
             committed_story, committed_segment = self.repository.commit_generation_bundle(
-                story,
+                story_for_commit,
                 state_sequence,
                 segment,
                 choice,

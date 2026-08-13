@@ -109,6 +109,56 @@ class StoryRepository:
         stories = [Story.model_validate_json(row["payload"]) for row in rows]
         return sorted(stories, key=lambda story: story.updated_at, reverse=True)
 
+    def request_pause(self, story_id: UUID) -> Story:
+        """Record a pause request without interrupting an in-flight scene commit."""
+        with self.database.transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT payload FROM stories WHERE id = ?", (str(story_id),)
+            ).fetchone()
+            if row is None:
+                raise StoryNotFoundError("story does not exist")
+            story = Story.model_validate_json(row["payload"])
+            updated = story.model_copy(
+                update={
+                    "pause_requested": True,
+                    "version": story.version + 1,
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
+                }
+            )
+            connection.execute(
+                "UPDATE stories SET payload = ? WHERE id = ?",
+                (_json(updated), str(story_id)),
+            )
+        return updated
+
+    def resume_story(self, story_id: UUID) -> Story:
+        """Clear a pause and make the story eligible for generation again."""
+        with self.database.transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT payload FROM stories WHERE id = ?", (str(story_id),)
+            ).fetchone()
+            if row is None:
+                raise StoryNotFoundError("story does not exist")
+            story = Story.model_validate_json(row["payload"])
+            next_status = (
+                transition(story.status, StoryStatus.IDLE)
+                if story.status is StoryStatus.PAUSED
+                else story.status
+            )
+            updated = story.model_copy(
+                update={
+                    "status": next_status,
+                    "pause_requested": False,
+                    "version": story.version + 1,
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
+                }
+            )
+            connection.execute(
+                "UPDATE stories SET payload = ? WHERE id = ?",
+                (_json(updated), str(story_id)),
+            )
+        return updated
+
     def recover_interrupted_generations(self) -> list[Story]:
         """Atomically mark persisted in-flight stories as interrupted once."""
         active_statuses = {
@@ -501,6 +551,7 @@ class StoryRepository:
                 updated_story = updated_story.model_copy(
                     update={
                         "status": target,
+                        "pause_requested": False,
                         "version": updated_story.version + 1,
                         "updated_at": datetime.now(UTC).replace(tzinfo=None),
                     }
