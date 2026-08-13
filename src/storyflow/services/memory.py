@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
+import re
 from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
@@ -222,7 +223,7 @@ class MemoryService:
                 },
             )
             new_summary = response.get("rolling_summary")
-            if not isinstance(new_summary, str):
+            if not isinstance(new_summary, str) or not re.search(r"[\u3400-\u9fff]", new_summary):
                 return snapshot
         except Exception:  # noqa: BLE001 – best-effort; committed content must survive
             return snapshot

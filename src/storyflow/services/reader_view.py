@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+import re
 from typing import Literal, Protocol
 from uuid import UUID
 
@@ -46,15 +47,22 @@ def build_visible_summary(
     segments: Sequence[StorySegment],
 ) -> tuple[str, Literal["rolling", "stage", "empty"]]:
     """Choose the persisted rollup or an ordered public scene-summary fallback."""
-    if snapshot is not None and snapshot.rolling_summary.strip():
+    if (
+        snapshot is not None
+        and snapshot.rolling_summary.strip()
+        and re.search(r"[\u3400-\u9fff]", snapshot.rolling_summary)
+    ):
         return snapshot.rolling_summary.strip(), "rolling"
     summaries = [
         segment.summary.strip()
         for segment in sorted(segments, key=lambda item: item.sequence)
-        if segment.summary.strip()
+        if segment.summary.strip() and re.search(r"[\u3400-\u9fff]", segment.summary)
     ]
     if summaries:
         return "\n\n".join(summaries), "stage"
+    if segments:
+        latest = max(segment.sequence for segment in segments)
+        return f"故事已推进至第 {latest} 个场景，后续将继续更新中文剧情摘要。", "stage"
     return "", "empty"
 
 

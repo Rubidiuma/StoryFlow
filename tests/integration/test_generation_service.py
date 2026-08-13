@@ -121,7 +121,7 @@ async def test_fifth_committed_scene_updates_the_branch_rolling_summary(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_pause_request_stops_after_committing_the_current_scene(tmp_path: Path) -> None:
+async def test_pause_request_saves_the_partial_scene_for_later_resume(tmp_path: Path) -> None:
     _, repository, story, branch = make_runtime(tmp_path)
     repository.request_pause(story.id)
     llm_client = FakeLLMClient(
@@ -139,12 +139,40 @@ async def test_pause_request_stops_after_committing_the_current_scene(tmp_path: 
     )
 
     persisted = repository.get_story(story.id)
-    assert result.segment is not None
+    assert result.segment is None
     assert result.content == "当前场景仍然完整保存。"
     assert result.status is StoryStatus.PAUSED
     assert persisted is not None
     assert persisted.status is StoryStatus.PAUSED
     assert persisted.pause_requested is False
+    draft = repository.get_generation_draft(branch.id)
+    assert draft is not None
+    assert draft[0] == "当前场景仍然完整保存。"
+
+
+@pytest.mark.asyncio
+async def test_resumed_generation_reuses_saved_draft_and_commits_one_scene(tmp_path: Path) -> None:
+    _, repository, story, branch = make_runtime(tmp_path)
+    repository.request_pause(story.id)
+    llm = FakeLLMClient(
+        json_responses=[valid_plan()],
+        text_responses=[["她推开门，"], ["看见晨光落满大厅。"]],
+    )
+    service = GenerationService(repository, llm)
+    first = await service.generate(GenerationRequest(
+        story_id=story.id, branch_id=branch.id, generation_key="draft-1", context={},
+    ))
+    assert first.status is StoryStatus.PAUSED
+    repository.resume_story(story.id)
+
+    resumed = await service.generate(GenerationRequest(
+        story_id=story.id, branch_id=branch.id, generation_key="draft-2", context={},
+    ))
+
+    assert resumed.segment is not None
+    assert resumed.content == "她推开门，看见晨光落满大厅。"
+    assert repository.get_generation_draft(branch.id) is None
+    assert len(repository.list_branch_path(branch.id)) == 1
 
 
 @pytest.mark.asyncio

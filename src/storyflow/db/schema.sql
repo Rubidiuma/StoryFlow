@@ -101,6 +101,15 @@ CREATE TABLE IF NOT EXISTS memory_snapshots (
     FOREIGN KEY (segment_id, story_id) REFERENCES story_segments(id, story_id)
 );
 
+CREATE TABLE IF NOT EXISTS generation_drafts (
+    branch_id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    scene_plan TEXT NOT NULL,
+    generation_key TEXT NOT NULL,
+    FOREIGN KEY (branch_id, story_id) REFERENCES branches(id, story_id)
+);
+
 CREATE TRIGGER IF NOT EXISTS branch_fork_choice_matches_segment_insert
 BEFORE INSERT ON branches
 WHEN NEW.fork_choice_id IS NOT NULL

@@ -12,6 +12,7 @@ Do not include prose outside the JSON object.
 """
 
 ROLLING_SUMMARY_PROMPT_V1 = """[rolling_summary_v1]
+Write the rolling_summary entirely in Simplified Chinese.
 You are given several recent story scenes and the current rolling summary.
 Compress them into a single rolling_summary string that preserves the most
 important events, character changes, and unresolved threads.

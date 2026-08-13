@@ -3,6 +3,7 @@
 DIRECTOR_PROMPT_ID = "scene_director_v1"
 
 DIRECTOR_PROMPT_V1 = """[scene_director_v1]
+All natural-language output fields, especially goal, conflict, beats, reason and option text, MUST use Simplified Chinese.
 Plan exactly one complete story scene from the supplied context.
 Return only one JSON object with these fields:
 

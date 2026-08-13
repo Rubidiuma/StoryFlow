@@ -211,6 +211,24 @@
   // ── Pause / Resume ────────────────────────────────────────────────────────
   const pauseBtn = page.querySelector("[data-pause]");
   const resumeBtn = page.querySelector("[data-resume]");
+  const activateBranchBtn = page.querySelector("[data-activate-branch]");
+
+  if (activateBranchBtn) {
+    activateBranchBtn.addEventListener("click", async () => {
+      activateBranchBtn.disabled = true;
+      try {
+        const response = await fetch(
+          `/api/stories/${storyId}/branches/${page.dataset.branchId}/activate`,
+          { method: "POST" }
+        );
+        if (!response.ok) throw new Error("activate failed");
+        location.reload();
+      } catch {
+        activateBranchBtn.disabled = false;
+        _showError("切换分支失败，请重试。");
+      }
+    });
+  }
 
   if (resumeBtn) {
     resumeBtn.addEventListener("click", async () => {
@@ -232,8 +250,7 @@
       try {
         const response = await fetch(`/api/stories/${storyId}/pause`, { method: "POST" });
         if (!response.ok) throw new Error("pause failed");
-        pauseBtn.textContent = "将在本场景结束后暂停";
-        _setGenerating(false);
+        pauseBtn.textContent = "正在保存当前进度…";
       } catch {
         pauseBtn.disabled = false;
         _showError("暂停失败，请重试。");

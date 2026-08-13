@@ -264,3 +264,22 @@ def test_forked_historical_choice_can_select_a_different_option(tmp_path: Path) 
     selected = repo.get_current_choice_for_branch(UUID(fork.json()["branch_id"]))
     assert selected is not None
     assert selected.selected_option_id == pending.options[1].id
+
+
+def test_non_current_branch_is_read_only_until_explicitly_activated(tmp_path: Path) -> None:
+    db, repo = _setup(tmp_path)
+    story, original = _make_story_with_branch(repo)
+    seg, choice = _commit_choice_segment(repo, story, original)
+    repo.save_memory_snapshot(MemorySnapshot(
+        story_id=story.id, branch_id=original.id, segment_id=seg.id,
+    ))
+    _force_status(db, story, StoryStatus.WAITING_CHOICE)
+    repo.submit_choice(choice.id, choice.version, option_id=choice.options[0].id)
+    repo.fork_at_choice(choice.id, "新分支")
+    client = TestClient(create_app(repository=repo))
+
+    page = client.get(f"/stories/{story.id}/reader?branch={original.id}")
+
+    assert page.status_code == 200
+    assert "data-autogenerate" not in page.text
+    assert "从此分支继续" in page.text

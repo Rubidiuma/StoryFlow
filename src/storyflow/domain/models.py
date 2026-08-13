@@ -1,6 +1,7 @@
 from __future__ import annotations
 """Domain models for StoryFlow per SPEC §8."""
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 try:
@@ -27,7 +28,7 @@ def _naive_utc_now() -> datetime:
 
 def _require_non_blank(value: str, message: str) -> str:
     """Reject strings that contain no visible content."""
-    if not value or not value.strip():
+    if not value or not re.search(r"[\u3400-\u9fffA-Za-z0-9]", value):
         raise ValueError(message)
     return value
 

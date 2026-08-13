@@ -124,11 +124,11 @@ async def test_rolling_summary_update_compresses_scenes_and_returns_new_snapshot
     _, repo, story, branch = _setup(tmp_path)
     snapshot = _make_snapshot(story, branch, summary="Old summary.")
     scenes = [_scene(i) for i in range(1, 6)]
-    llm = FakeLLMClient(json_responses=[{"rolling_summary": "Compressed five-scene summary."}])
+    llm = FakeLLMClient(json_responses=[{"rolling_summary": "前五个场景的压缩摘要。"}])
 
     updated = await MemoryService.update_rolling_summary(snapshot, scenes, llm)
 
-    assert updated.rolling_summary == "Compressed five-scene summary."
+    assert updated.rolling_summary == "前五个场景的压缩摘要。"
     assert updated.active_threads == snapshot.active_threads
     assert updated.context_version == snapshot.context_version + 1
     assert len(llm.calls) == 1
@@ -303,7 +303,7 @@ async def test_rolling_summary_triggered_at_scene_5_and_10_in_sequence(
             latest = repo.get_latest_memory_snapshot(branch.id)
             assert latest is not None
             llm = FakeLLMClient(
-                json_responses=[{"rolling_summary": f"Summary after scene {seq}."}]
+                json_responses=[{"rolling_summary": f"第 {seq} 个场景后的摘要。"}]
             )
             updated = await MemoryService.update_rolling_summary(latest, scenes, llm)
             repo.save_memory_snapshot(
@@ -313,4 +313,4 @@ async def test_rolling_summary_triggered_at_scene_5_and_10_in_sequence(
     assert summary_call_count == 2  # triggered at seq=5 and seq=10
     final_snapshot = repo.get_latest_memory_snapshot(branch.id)
     assert final_snapshot is not None
-    assert final_snapshot.rolling_summary == "Summary after scene 10."
+    assert final_snapshot.rolling_summary == "第 10 个场景后的摘要。"

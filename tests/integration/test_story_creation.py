@@ -134,6 +134,10 @@ async def test_invalid_required_or_oversized_config_creates_no_story(tmp_path: P
         blank["config"][field] = "   "
         invalid_requests.append(blank)
 
+    punctuation = valid_story_request()
+    punctuation["config"]["world_background"] = "。。……！！"
+    invalid_requests.append(punctuation)
+
     oversized = valid_story_request()
     oversized["config"].update(
         {
@@ -149,7 +153,7 @@ async def test_invalid_required_or_oversized_config_creates_no_story(tmp_path: P
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         responses = [await client.post("/stories", json=payload) for payload in invalid_requests]
 
-    assert [response.status_code for response in responses] == [422] * 7
+    assert [response.status_code for response in responses] == [422] * 8
     with database.read() as connection:
         assert connection.execute("SELECT COUNT(*) FROM stories").fetchone()[0] == 0
 

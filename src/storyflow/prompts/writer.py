@@ -18,6 +18,7 @@ CRITICAL CHARACTER NAMES:
 - Do NOT modify, translate, or adapt character names under any circumstances.
 
 CONTENT RULES:
+- If unfinished_scene is present, continue directly from its final sentence. Never repeat it.
 - Follow the scene beats in order.
 - Close third-person perspective focused on the protagonist.
 - Vivid, concrete action and sensory detail — show, don't tell.

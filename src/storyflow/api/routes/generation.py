@@ -91,6 +91,15 @@ def create_generation_router(
         except StoryNotFoundError as exc:
             raise generation_http_error(status.HTTP_404_NOT_FOUND, "story_not_found") from exc
 
+    @router.post("/{story_id}/branches/{branch_id}/activate", response_model=Story)
+    async def activate_branch(story_id: UUID, branch_id: UUID) -> Story:
+        if repository is None:
+            raise generation_http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "story_service_unavailable")
+        branch = repository.get_branch(branch_id)
+        if branch is None or branch.story_id != story_id:
+            raise generation_http_error(status.HTTP_404_NOT_FOUND, "branch_not_found")
+        return repository.activate_branch(story_id, branch_id)
+
     @router.post("/{story_id}/generate")
     async def generate_story(
         story_id: UUID,
@@ -206,6 +215,9 @@ async def _publish_result(
     result: GenerationResult,
 ) -> None:
     """Publish commit and terminal control events after the service completes."""
+    if result.status is StoryStatus.PAUSED and result.segment is None:
+        await queue.put(_SSEEvent("paused", {"draft_saved": True}))
+        return
     if result.error_code is not None or result.segment is None:
         await queue.put(_SSEEvent("error", generation_error_data(result.error_code)))
         return

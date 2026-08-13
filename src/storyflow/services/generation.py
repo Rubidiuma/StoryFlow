@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import sqlite3
 from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
@@ -220,14 +221,21 @@ class GenerationService:
     ) -> GenerationResult:
         """Run one generation after its branch has been exclusively reserved."""
 
+        draft = self.repository.get_generation_draft(request.branch_id)
         state_machine = StoryStateMachine(story.status)
         state_sequence: list[StoryStatus] = [story.status]
         self._advance(state_machine, state_sequence, StoryStatus.PLANNING)
-        director_context = deepcopy(dict(request.context))
-        try:
-            plan = await self._generate_plan(director_context)
-        except _DirectorRequestFailure:
-            return GenerationResult(status=StoryStatus.ERROR, error_code="director_failed")
+        if draft is not None:
+            try:
+                plan = ScenePlan.model_validate(draft[1])
+            except ValidationError:
+                plan = None
+        else:
+            director_context = deepcopy(dict(request.context))
+            try:
+                plan = await self._generate_plan(director_context)
+            except _DirectorRequestFailure:
+                return GenerationResult(status=StoryStatus.ERROR, error_code="director_failed")
         if plan is None:
             return GenerationResult(status=StoryStatus.ERROR, error_code="director_invalid")
 
@@ -241,7 +249,15 @@ class GenerationService:
         self._advance(state_machine, state_sequence, StoryStatus.STREAMING)
         writer_context: dict[str, Any] = deepcopy(dict(request.context))
         writer_context["scene_plan"] = final_plan.model_dump(mode="json")
-        chunks: list[str] = []
+        chunks: list[str] = [draft[0]] if draft is not None else []
+        if draft is not None:
+            writer_context["unfinished_scene"] = draft[0]
+            writer_context["continuation_instruction"] = (
+                "只续写未完成场景，不要重复 unfinished_scene；保持语言、动作和句子衔接。"
+            )
+            if on_delta is not None and draft[0]:
+                await on_delta(draft[0])
+        paused_during_stream = False
         try:
             async for chunk in self.llm_client.stream_text(
                 prompt=WRITER_PROMPT_V1,
@@ -250,6 +266,10 @@ class GenerationService:
                 chunks.append(chunk)
                 if on_delta is not None and chunk:
                     await on_delta(chunk)
+                latest = self.repository.get_story(story.id)
+                if latest is not None and latest.pause_requested:
+                    paused_during_stream = True
+                    break
         except asyncio.CancelledError:
             return GenerationResult(
                 status=StoryStatus.ERROR,
@@ -259,6 +279,12 @@ class GenerationService:
             return GenerationResult(status=StoryStatus.ERROR, error_code="writer_failed")
 
         content = "".join(chunks)
+        if paused_during_stream:
+            paused_story = self.repository.save_generation_draft(
+                story.id, request.branch_id, content,
+                final_plan.model_dump(mode="json"), request.generation_key,
+            )
+            return GenerationResult(status=paused_story.status, content=content)
         # Normalize character names to fix LLM mistakes (e.g., English translations)
         characters = request.context.get("characters", [])
         if isinstance(characters, list):
@@ -284,7 +310,11 @@ class GenerationService:
             parent_segment_id=branch.head_segment_id,
             sequence=parent.sequence + 1 if parent is not None else 1,
             content=content,
-            summary=final_plan.goal,
+            summary=(
+                final_plan.goal
+                if re.search(r"[\u3400-\u9fff]", final_plan.goal)
+                else f"第 {parent.sequence + 2 if parent is not None else 1} 个场景"
+            ),
             scene_plan=final_plan.model_dump(mode="json"),
             generation_key=request.generation_key,
             status="completed",
@@ -313,6 +343,7 @@ class GenerationService:
         except (sqlite3.Error, LookupError, ValueError, RuntimeError):
             return GenerationResult(status=StoryStatus.ERROR, error_code="commit_failed")
         await self._update_rolling_summary(committed_segment)
+        self.repository.delete_generation_draft(request.branch_id)
         return GenerationResult(
             status=committed_story.status,
             segment=committed_segment,

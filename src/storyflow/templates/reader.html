@@ -16,7 +16,7 @@
           data-branch-id="{{ branch.id }}"
           data-story-status="{{ story.status.value }}"
           data-generate-url="/api/stories/{{ story.id }}/generate"
-          {% if story.status.value == "IDLE" %}data-autogenerate="true"{% endif %}>
+          {% if story.status.value == "IDLE" and story.current_branch_id == branch.id %}data-autogenerate="true"{% endif %}>
 
       <header class="reader-header">
         <div>
@@ -58,6 +58,13 @@
       </section>
 
       <div class="reader-error" role="alert" aria-live="polite" hidden></div>
+
+      {% if story.current_branch_id != branch.id %}
+      <div class="branch-readonly">
+        <span>正在只读查看历史分支。</span>
+        <button class="button button-secondary" data-activate-branch>从此分支继续</button>
+      </div>
+      {% endif %}
 
       <section class="segment-list" aria-label="故事正文">
         {% for seg in segments %}

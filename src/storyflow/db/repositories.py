@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 """Persistence operations for StoryFlow's Pydantic domain models."""
+import json
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -158,6 +159,76 @@ class StoryRepository:
                 (_json(updated), str(story_id)),
             )
         return updated
+
+    def activate_branch(self, story_id: UUID, branch_id: UUID) -> Story:
+        """Switch the writable branch and derive its resumable story status."""
+        branch = self.get_branch(branch_id)
+        story = self.get_story(story_id)
+        if branch is None or branch.story_id != story_id or story is None:
+            raise StoryNotFoundError("story or branch does not exist")
+        current_choice = self.get_current_choice_for_branch(branch_id)
+        target = (
+            StoryStatus.WAITING_CHOICE
+            if current_choice is not None and current_choice.status == "pending"
+            else StoryStatus.IDLE
+        )
+        updated = story.model_copy(update={
+            "current_branch_id": branch_id, "status": target,
+            "pause_requested": False, "version": story.version + 1,
+            "updated_at": datetime.now(UTC).replace(tzinfo=None),
+        })
+        with self.database.transaction(immediate=True) as connection:
+            connection.execute(
+                "UPDATE stories SET current_branch_id = ?, payload = ? WHERE id = ?",
+                (str(branch_id), _json(updated), str(story_id)),
+            )
+        return updated
+
+    def save_generation_draft(
+        self, story_id: UUID, branch_id: UUID, content: str,
+        scene_plan: Mapping[str, object], generation_key: str,
+    ) -> Story:
+        """Persist an interrupted scene and pause its story atomically."""
+        with self.database.transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT payload FROM stories WHERE id = ?", (str(story_id),)
+            ).fetchone()
+            if row is None:
+                raise StoryNotFoundError("story does not exist")
+            story = Story.model_validate_json(row["payload"])
+            connection.execute(
+                """INSERT INTO generation_drafts
+                   (branch_id, story_id, content, scene_plan, generation_key)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(branch_id) DO UPDATE SET content=excluded.content,
+                   scene_plan=excluded.scene_plan, generation_key=excluded.generation_key""",
+                (str(branch_id), str(story_id), content,
+                 json.dumps(scene_plan, ensure_ascii=False), generation_key),
+            )
+            updated = story.model_copy(update={
+                "status": StoryStatus.PAUSED, "pause_requested": False,
+                "version": story.version + 1,
+                "updated_at": datetime.now(UTC).replace(tzinfo=None),
+            })
+            connection.execute("UPDATE stories SET payload = ? WHERE id = ?",
+                               (_json(updated), str(story_id)))
+        return updated
+
+    def get_generation_draft(
+        self, branch_id: UUID,
+    ) -> tuple[str, dict[str, object], str] | None:
+        with self.database.read() as connection:
+            row = connection.execute(
+                "SELECT content, scene_plan, generation_key FROM generation_drafts WHERE branch_id = ?",
+                (str(branch_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return row["content"], json.loads(row["scene_plan"]), row["generation_key"]
+
+    def delete_generation_draft(self, branch_id: UUID) -> None:
+        with self.database.transaction() as connection:
+            connection.execute("DELETE FROM generation_drafts WHERE branch_id = ?", (str(branch_id),))
 
     def recover_interrupted_generations(self) -> list[Story]:
         """Atomically mark persisted in-flight stories as interrupted once."""

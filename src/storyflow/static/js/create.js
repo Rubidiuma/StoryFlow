@@ -37,6 +37,16 @@
       invalid.reportValidity();
       return false;
     }
+    const punctuationOnly = controls.find((control) =>
+      control.required && typeof control.value === "string" &&
+      !/[\u3400-\u9fffA-Za-z0-9]/.test(control.value)
+    );
+    if (punctuationOnly) {
+      punctuationOnly.setCustomValidity("请填写实际内容，不能只输入标点符号。");
+      punctuationOnly.reportValidity();
+      punctuationOnly.addEventListener("input", () => punctuationOnly.setCustomValidity(""), { once: true });
+      return false;
+    }
     return true;
   }
 
