@@ -72,10 +72,19 @@ def _extract_json_object(text: str) -> dict | None:
         result = json.loads(candidate)
         if isinstance(result, dict):
             return result
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        # If JSON is truncated (incomplete), try to auto-complete it
+        if "Expecting property name" in str(e) or "Expecting value" in str(e):
+            for closing in ("}", "]"):
+                try:
+                    result = json.loads(candidate + closing)
+                    if isinstance(result, dict):
+                        return result
+                except json.JSONDecodeError:
+                    pass
         return None
     return None
-_MAX_TOKENS_JSON = 4096
+_MAX_TOKENS_JSON = 8192  # Increased for detailed scene plans with Chinese content
 _MAX_TOKENS_STREAM = 4096  # 2048 was too small for 500-800 Chinese char scenes
 
 

@@ -398,6 +398,7 @@ class GenerationService:
     async def _generate_plan(self, context: Mapping[str, object]) -> ScenePlan | None:
         """Validate a Director response, retrying one structural failure only."""
         for attempt in range(2):
+            response = None
             try:
                 raw = await self.llm_client.generate_json(
                     prompt=DIRECTOR_PROMPT_V1,
