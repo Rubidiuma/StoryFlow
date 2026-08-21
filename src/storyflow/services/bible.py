@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from uuid import UUID
 
 _log = logging.getLogger(__name__)
@@ -76,6 +77,36 @@ class GeneratedBiblePayload(BaseModel):
     @classmethod
     def required_text_is_visible(cls, value: str) -> str:
         return _visible(value)
+
+
+def _coerce_int(value: object, *, default: int) -> int:
+    """Best-effort conversion of a model-provided value to an int."""
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        match = re.search(r"-?\d+", value)
+        if match:
+            return int(match.group())
+    return default
+
+
+def _coerce_bool(value: object, *, default: bool) -> bool:
+    """Best-effort conversion of a model-provided value to a bool."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("true", "yes", "1", "是", "存活", "活着", "alive"):
+            return True
+        if v in ("false", "no", "0", "否", "死亡", "已死", "dead"):
+            return False
+    return default
 
 
 def _normalize_bible_response(raw: dict) -> dict:
@@ -158,6 +189,10 @@ def _normalize_bible_response(raw: dict) -> dict:
                 c["relationships"] = {rel: rel} if rel.strip() else {}
             elif not isinstance(rel, dict):
                 c["relationships"] = {}
+            # Coerce version to int (models sometimes send text like "初始版本")
+            c["version"] = _coerce_int(c.get("version"), default=1)
+            # Coerce alive to bool (models sometimes send text like "未知"/None)
+            c["alive"] = _coerce_bool(c.get("alive"), default=True)
             normalized_chars.append(c)
         r["characters"] = normalized_chars
 
@@ -283,15 +318,14 @@ async def generate_validated_bible(
     story: Story, llm_client: LLMClient
 ) -> GeneratedBiblePayload:
     """Request and validate a Bible response, retrying one structural failure."""
-    from storyflow.services.naming import get_protagonist_name
-
     context = story.config.model_dump(mode="json")
 
-    # Extract or generate protagonist name and add to context
-    protagonist_name = get_protagonist_name(story.config.protagonist_desc)
-    context["protagonist_name"] = protagonist_name
-    _log.debug("Using protagonist name: %s", protagonist_name)
-
+    # The protagonist's name is decided here, once, by the model reading the full
+    # protagonist_desc, and is then persisted on the protagonist CharacterState.
+    # That stored name is the single source of truth reused by every downstream
+    # content-generation call (via the characters context layer). We do not guess
+    # or inject a name ourselves, so we never override a name the settings already
+    # contain nor fabricate one that contradicts them.
     last_raw: dict = {}
     for attempt in range(2):
         try:
