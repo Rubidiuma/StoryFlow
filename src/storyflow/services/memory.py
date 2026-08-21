@@ -235,6 +235,53 @@ class MemoryService:
         )
 
     @staticmethod
+    async def update_from_scene(
+        snapshot: MemorySnapshot,
+        scene_content: str,
+        llm_client: object,
+    ) -> MemorySnapshot:
+        """Evolve the memory snapshot from one committed scene via the LLM.
+
+        Derives an incremental structured update (character state, open plot
+        threads, foreshadowing) so that later scenes stay causally consistent and
+        avoid repeating what already happened. On any failure (LLM error,
+        malformed or empty update) the original snapshot is returned unchanged, so
+        a bad memory update can never invalidate committed prose.
+        """
+        from storyflow.prompts.memory import MEMORY_UPDATE_PROMPT_V1
+
+        if not scene_content.strip():
+            return snapshot
+        try:
+            response = await llm_client.generate_json(  # type: ignore[attr-defined]
+                prompt=MEMORY_UPDATE_PROMPT_V1,
+                context={
+                    "committed_scene": scene_content,
+                    "characters": [c.model_dump(mode="json") for c in snapshot.characters],
+                    "active_threads": list(snapshot.active_threads),
+                    "foreshadowing": [
+                        {"id": fid, "description": desc, "status": "active"}
+                        for fid, desc in snapshot.foreshadowing.items()
+                    ],
+                    "rolling_summary": snapshot.rolling_summary,
+                },
+            )
+            if not isinstance(response, Mapping):
+                return snapshot
+            update = MemoryService.parse_update(response)
+        except Exception:  # noqa: BLE001 – best-effort; committed content must survive
+            return snapshot
+
+        if (
+            update.characters is None
+            and update.active_threads is None
+            and update.foreshadowing is None
+            and update.rolling_summary is None
+        ):
+            return snapshot
+        return MemoryService.apply_update(snapshot, update)
+
+    @staticmethod
     async def generate_next_arc(
         story_id: UUID,
         branch_id: UUID,

@@ -57,12 +57,19 @@ def _setup_app(tmp_path: Path, script: dict) -> tuple[StoryRepository, FakeLLMCl
         "first_arc": b["first_arc"],
         "characters": b["characters"],
     }
+    # After each committed scene the service derives a structured memory update
+    # (its own generate_json call); an empty object means "no change" so the
+    # scripted plans stay aligned with their scenes.
+    no_memory_change: dict = {}
     llm = FakeLLMClient(
         json_responses=[
             bible_plan,                       # bible generate
             script["scene1_plan"],            # scene 1 director
+            no_memory_change,                 # scene 1 memory update
             script["scene2_plan"],            # scene 2 director (with choice)
+            no_memory_change,                 # scene 2 memory update
             script["scene3_plan"],            # scene 3 director (post-choice)
+            no_memory_change,                 # scene 3 memory update
         ],
         text_responses=[
             [script["scene1_text"]],

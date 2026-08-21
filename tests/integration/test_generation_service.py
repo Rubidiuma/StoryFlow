@@ -121,6 +121,40 @@ async def test_fifth_committed_scene_updates_the_branch_rolling_summary(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_committed_scene_persists_evolved_memory_snapshot(tmp_path: Path) -> None:
+    """Each committed scene stores an evolved snapshot so later scenes stay causal."""
+    _, repository, story, branch = make_runtime(tmp_path)
+    llm_client = FakeLLMClient(
+        json_responses=[
+            valid_plan(),
+            {
+                "active_threads": ["调查坠落的飞艇"],
+                "foreshadowing": [
+                    {"id": "compass", "description": "罗盘指向云海深处", "status": "planted"}
+                ],
+            },
+        ],
+        text_responses=[["弥拉看见远处坠落的飞艇。"]],
+    )
+
+    result = await GenerationService(repository, llm_client).generate(
+        GenerationRequest(
+            story_id=story.id,
+            branch_id=branch.id,
+            generation_key="memory-scene-1",
+            context={},
+        )
+    )
+
+    assert result.segment is not None
+    latest = repository.get_latest_memory_snapshot(branch.id)
+    assert latest is not None
+    assert latest.segment_id == result.segment.id
+    assert latest.active_threads == ["调查坠落的飞艇"]
+    assert latest.foreshadowing == {"compass": "罗盘指向云海深处"}
+
+
+@pytest.mark.asyncio
 async def test_pause_request_saves_the_partial_scene_for_later_resume(tmp_path: Path) -> None:
     _, repository, story, branch = make_runtime(tmp_path)
     repository.request_pause(story.id)
@@ -226,10 +260,12 @@ async def test_valid_no_choice_flow_records_states_and_commits_one_bundle(
     ]
     assert event.output_size == len(result.content)
     assert [call["operation"] for call in llm_client.calls] == [
-        "generate_json",
-        "stream_text",
+        "generate_json",  # Director plan
+        "stream_text",    # Writer prose
+        "generate_json",  # per-scene memory update (derived after commit)
     ]
     assert "scene_director_v1" in str(llm_client.calls[0]["prompt"])
+    assert "memory_update_v1" in str(llm_client.calls[2]["prompt"])
     assert llm_client.calls[0]["context"] == context
     assert "scene_writer_v1" in str(llm_client.calls[1]["prompt"])
     writer_context = llm_client.calls[1]["context"]
@@ -394,9 +430,10 @@ async def test_first_invalid_director_plan_retries_once_then_commits(
     assert result.error_code is None
     assert result.segment is not None
     assert [call["operation"] for call in llm_client.calls] == [
-        "generate_json",
-        "generate_json",
-        "stream_text",
+        "generate_json",  # first (invalid) Director plan
+        "generate_json",  # retried Director plan
+        "stream_text",    # Writer prose
+        "generate_json",  # per-scene memory update (derived after commit)
     ]
     assert [call["context"] for call in llm_client.calls[:2]] == [context, context]
     with database.read() as connection:
@@ -534,7 +571,9 @@ async def test_duplicate_generation_key_returns_existing_scene_without_new_work(
     assert second.content == first.content
     assert second.status is StoryStatus.IDLE
     assert second.error_code is None
-    assert len(llm_client.calls) == 2
+    # First generate: Director + Writer + one memory-update call; the duplicate
+    # replay does no model work at all.
+    assert len(llm_client.calls) == 3
     assert repository.get_story(story.id) == story_after_first
     with database.read() as connection:
         counts = {

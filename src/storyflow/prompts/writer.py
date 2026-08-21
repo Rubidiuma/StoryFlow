@@ -17,6 +17,14 @@ CRITICAL CHARACTER NAMES:
 - When you refer to any character, use their exact name as specified in the character list.
 - Do NOT modify, translate, or adapt character names under any circumstances.
 
+CONTINUITY (use the context to stay consistent and avoid repetition):
+- rolling_summary, older_scene_summaries and recent_scenes are events that ALREADY happened.
+  Do NOT retell, recap, or rephrase them. Begin from where the story currently stands.
+- Continue causally from the most recent scene and the reader's last choice; keep character
+  known_facts, relationships, locations and alive status consistent with the context.
+- Reuse concrete details already established (places, objects, names) instead of inventing
+  contradictory ones, and move at least one open thread forward within this scene.
+
 CONTENT RULES:
 - If unfinished_scene is present, continue directly from its final sentence. Never repeat it.
 - Follow the scene beats in order.

@@ -168,6 +168,75 @@ async def test_malformed_summary_response_returns_original_snapshot(
     assert updated.context_version == snapshot.context_version
 
 
+# ─── Per-scene structured memory (continuity / causality) ───────────────────────
+
+
+@pytest.mark.asyncio
+async def test_scene_memory_update_evolves_threads_and_clues(tmp_path: Path) -> None:
+    """A committed scene evolves active threads and foreshadowing for later scenes."""
+    _, _repo, story, branch = _setup(tmp_path)
+    snapshot = _make_snapshot(story, branch, threads=["Map the glacier"])
+    llm = FakeLLMClient(
+        json_responses=[
+            {
+                "active_threads": ["Reach the frozen archive"],
+                "foreshadowing": [
+                    {"id": "lantern", "description": "A lantern burns under the ice", "status": "planted"}
+                ],
+            }
+        ]
+    )
+
+    updated = await MemoryService.update_from_scene(
+        snapshot, "Zara descended into the glacier and saw a distant light.", llm
+    )
+
+    assert updated is not snapshot
+    assert updated.active_threads == ["Reach the frozen archive"]
+    assert updated.foreshadowing == {"lantern": "A lantern burns under the ice"}
+    assert updated.context_version == snapshot.context_version + 1
+    assert len(llm.calls) == 1
+    assert "memory_update_v1" in str(llm.calls[0]["prompt"])
+
+
+@pytest.mark.asyncio
+async def test_scene_memory_update_no_change_returns_same_snapshot(tmp_path: Path) -> None:
+    """An empty update leaves the snapshot untouched so no redundant version is stored."""
+    _, _repo, story, branch = _setup(tmp_path)
+    snapshot = _make_snapshot(story, branch)
+    llm = FakeLLMClient(json_responses=[{}])
+
+    updated = await MemoryService.update_from_scene(snapshot, "A quiet scene.", llm)
+
+    assert updated is snapshot
+
+
+@pytest.mark.asyncio
+async def test_scene_memory_update_survives_llm_failure(tmp_path: Path) -> None:
+    """An LLM failure during memory extraction must not disturb committed memory."""
+    _, _repo, story, branch = _setup(tmp_path)
+    snapshot = _make_snapshot(story, branch, threads=["Original thread"])
+    llm = FakeLLMClient(json_responses=[RuntimeError("provider down")])
+
+    updated = await MemoryService.update_from_scene(snapshot, "A scene.", llm)
+
+    assert updated is snapshot
+    assert updated.active_threads == ["Original thread"]
+
+
+@pytest.mark.asyncio
+async def test_scene_memory_update_skips_empty_scene(tmp_path: Path) -> None:
+    """An empty scene never calls the model."""
+    _, _repo, story, branch = _setup(tmp_path)
+    snapshot = _make_snapshot(story, branch)
+    llm = FakeLLMClient(json_responses=[])
+
+    updated = await MemoryService.update_from_scene(snapshot, "   ", llm)
+
+    assert updated is snapshot
+    assert llm.calls == []
+
+
 # ─── Arc management ────────────────────────────────────────────────────────────
 
 

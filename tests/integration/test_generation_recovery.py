@@ -270,7 +270,9 @@ async def test_twenty_sequential_duplicates_return_one_stable_bundle(tmp_path: P
 
     assert results[0].segment is not None
     assert all(result == results[0] for result in results)
-    assert len(llm_client.calls) == 2
+    # Only the first request does model work: Director + Writer + memory update.
+    # The remaining nineteen are deduplicated with no model calls.
+    assert len(llm_client.calls) == 3
     persisted_story = repository.get_story(story.id)
     assert persisted_story is not None
     assert persisted_story.version == story.version + 4

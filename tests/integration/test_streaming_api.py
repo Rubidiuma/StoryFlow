@@ -593,7 +593,9 @@ def test_committed_generation_key_replays_without_duplicate_work_or_rows(tmp_pat
         "committed",
         "continue",
     ]
-    assert len(llm_client.calls) == 2
+    # First request: Director + Writer + one per-scene memory update; the replay
+    # returns the committed scene without any model work.
+    assert len(llm_client.calls) == 3
     with database.read() as connection:
         assert connection.execute("SELECT COUNT(*) FROM story_segments").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM generation_events").fetchone()[0] == 1

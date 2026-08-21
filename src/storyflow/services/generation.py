@@ -342,6 +342,7 @@ class GenerationService:
             )
         except (sqlite3.Error, LookupError, ValueError, RuntimeError):
             return GenerationResult(status=StoryStatus.ERROR, error_code="commit_failed")
+        await self._update_scene_memory(committed_segment)
         await self._update_rolling_summary(committed_segment)
         self.repository.delete_generation_draft(request.branch_id)
         return GenerationResult(
@@ -350,6 +351,54 @@ class GenerationService:
             choice_point=self.repository.get_choice_point_for_segment(committed_segment.id),
             content=committed_segment.content,
         )
+
+    async def _update_scene_memory(self, segment: StorySegment) -> None:
+        """Evolve structured memory (characters, threads, clues) after each scene.
+
+        This is the continuity backbone: each committed scene incrementally
+        updates who-knows-what, which plot threads are open, and which clues are
+        planted or resolved, so later Director/Writer calls build causally on
+        prior events instead of repeating them. Best-effort: any failure leaves
+        the previous snapshot in place and never blocks committed prose.
+        """
+        from storyflow.domain.models import MemorySnapshot
+
+        try:
+            snapshot = self.repository.get_latest_memory_snapshot(segment.branch_id)
+            if snapshot is None:
+                # Seed the first snapshot from the Bible characters so early scenes
+                # already carry the full cast into memory.
+                characters = [
+                    character
+                    for character in self.repository.list_character_states(segment.story_id)
+                    if character.branch_id == segment.branch_id
+                ]
+                snapshot = MemorySnapshot(
+                    story_id=segment.story_id,
+                    branch_id=segment.branch_id,
+                    segment_id=segment.id,
+                    characters=characters,
+                    context_version=1,
+                )
+            updated = await MemoryService.update_from_scene(
+                snapshot, segment.content, self.llm_client
+            )
+            if updated is snapshot:
+                return
+            self.repository.save_memory_snapshot(
+                updated.model_copy(
+                    update={"id": uuid4(), "segment_id": segment.id},
+                    deep=True,
+                )
+            )
+        except Exception:  # noqa: BLE001 - memory evolution cannot invalidate committed prose
+            _log.warning(
+                "Scene memory update failed for story=%s branch=%s sequence=%s",
+                segment.story_id,
+                segment.branch_id,
+                segment.sequence,
+                exc_info=True,
+            )
 
     async def _update_rolling_summary(self, segment: StorySegment) -> None:
         """Best-effort rollup after a durable scene commit."""

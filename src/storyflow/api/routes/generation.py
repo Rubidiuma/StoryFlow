@@ -302,17 +302,29 @@ def _build_story_context(
     characters: list[dict[str, Any]] = []
     foreshadowing: list[ForeshadowingMemory] = []
     rolling_summary = ""
+    # Prefer the evolving memory snapshot; before one exists (the first scenes),
+    # fall back to the Bible's character roster so early scenes still carry the
+    # full cast and stay consistent from the very beginning.
+    memory_characters = (
+        memory.characters
+        if memory is not None
+        else [
+            char
+            for char in repository.list_character_states(story_id)
+            if str(char.branch_id) == str(branch_id)
+        ]
+    )
+    for char in memory_characters:
+        characters.append({
+            "name": char.name,
+            "role": char.role,
+            "location": char.location,
+            "motivation": char.motivation,
+            "known_facts": char.known_facts,
+            "relationships": char.relationships,
+            "alive": char.alive,
+        })
     if memory:
-        for char in memory.characters:
-            characters.append({
-                "name": char.name,
-                "role": char.role,
-                "location": char.location,
-                "motivation": char.motivation,
-                "known_facts": char.known_facts,
-                "relationships": char.relationships,
-                "alive": char.alive,
-            })
         for fid, fdesc in memory.foreshadowing.items():
             foreshadowing.append(ForeshadowingMemory(id=fid, description=fdesc, status="active"))
         rolling_summary = memory.rolling_summary

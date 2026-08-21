@@ -5,6 +5,19 @@ DIRECTOR_PROMPT_ID = "scene_director_v1"
 DIRECTOR_PROMPT_V1 = """[scene_director_v1]
 All natural-language output fields, especially goal, conflict, beats, reason and option text, MUST use Simplified Chinese.
 Plan exactly one complete story scene from the supplied context.
+
+CONTINUITY, CAUSALITY, AND NON-REPETITION (read the context carefully first):
+- rolling_summary, older_scene_summaries and recent_scenes describe what has ALREADY happened.
+  Do NOT re-plan or restate events, revelations, or beats that already occurred. Advance the story.
+- This scene must follow causally from the most recent scene and from the reader's last choice
+  (see the choices layer): honor the consequences of that choice rather than resetting them.
+- active_threads are open plot lines that need progress; foreshadowing lists planted clues that
+  should eventually pay off. Prefer beats that push an active thread forward or develop a clue.
+- characters carry known_facts, relationships, location and alive status: stay consistent with
+  them. A character cannot re-learn what they already know or reappear if not alive.
+- Each scene should change the situation (new information, a decision, a shift in location or
+  relationship) so consecutive scenes never feel like variations of the same moment.
+
 Return only one JSON object with these fields:
 
 - goal: string — what the scene achieves narratively
